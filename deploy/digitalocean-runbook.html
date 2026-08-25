@@ -635,6 +635,16 @@ timedatectl set-timezone UTC</code></pre></div>
 <div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>adduser --gecos &quot;&quot; --disabled-password trek
 usermod -aG sudo trek
 rsync --archive --chown=trek:trek ~/.ssh /home/trek/</code></pre></div>
+<p><code>--disabled-password</code> means exactly that: the account has no password, so nobody can log in as <code>trek</code> by typing one. Your SSH key is the way in. But <code>sudo</code> asks for <em>your own</em> password before escalating, and an account with none can never satisfy it — so set one now:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>passwd trek</code></pre></div>
+<p>Choose something strong and put it in your password manager. You will never type it to log in — that is what the key is for — only when <code>sudo</code> asks. Two different secrets guarding two different things: the key gets you onto the box, the password gets you root.</p>
+<div class="call note"><span class="lab">The passwordless alternative</span>
+<p>Some people prefer <code>sudo</code> that never prompts:</p>
+<p><code>echo 'trek ALL=(ALL) NOPASSWD:ALL' &gt; /etc/sudoers.d/trek &amp;&amp; chmod 440 /etc/sudoers.d/trek</code></p>
+<p>It is convenient, and defensible here given SSH is key-only and root login is off. But it collapses
+two barriers into one: anything that gets a shell as <code>trek</code> — a compromised key, a bad
+dependency in something you run — is instantly root. The password is thirty seconds of typing a week.
+Prefer it.</p></div>
 <h3>Turn off root login and passwords over SSH</h3>
 <p>Write a drop-in rather than editing <code>sshd_config</code> directly — DigitalOcean images ship cloud-init files in <code>sshd_config.d/</code> that would override your edits.</p>
 <div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>cat &gt; /etc/ssh/sshd_config.d/99-trek.conf &lt;&lt;&#x27;EOF&#x27;
@@ -685,6 +695,11 @@ apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker
 # Let the trek user drive Docker without sudo
 usermod -aG docker trek
 
+# Create the app directory now, while we are still root — stage 09 then needs
+# no sudo at all.
+mkdir -p /opt/trek
+chown trek:trek /opt/trek
+
 docker --version &amp;&amp; docker compose version</code></pre></div>
 <div class="call check"><span class="lab">Checkpoint</span><p>Both version commands must print. Then reconnect as <code>trek</code> — group membership only applies to new sessions.</p></div>
 <div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>ssh -i ~/.ssh/trek_do trek@YOUR_DROPLET_IP</code></pre></div>
@@ -693,9 +708,7 @@ docker --version &amp;&amp; docker compose version</code></pre></div>
 <section id="s09"><div class="sec-head"><span class="sec-n">09</span><h2>Deploy from your fork</h2></div>
 <p>I added three files to your repo for this — a production compose file, a Caddy config, and an env template. They are committed to your fork, so the droplet gets them with the clone.</p>
 <h3>Clone it</h3>
-<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>sudo mkdir -p /opt/trek
-sudo chown trek:trek /opt/trek
-git clone https://github.com/OHHHHAYO/TREK.git /opt/trek
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>git clone https://github.com/OHHHHAYO/TREK.git /opt/trek
 cd /opt/trek
 mkdir -p data uploads</code></pre></div>
 <h3>Configure</h3>
@@ -785,10 +798,26 @@ the reverse of the script — stop the stack, replace <code>data/</code> and <co
 start it again.</p></div>
 </section>
 <section id="s12"><div class="sec-head"><span class="sec-n">12</span><h2>Updating, and tracking upstream</h2></div>
+<div class="call stop"><span class="lab">Ignore the admin panel&#x27;s “How to Update” button</span>
+<p>The banner reading <em>TREK vX is available</em> is upstream's notifier, and its button shows
+upstream's instructions: <code>docker compose pull</code> or a bare <code>docker run</code>. Those
+are written for people running the published image with no reverse proxy.</p>
+<p>Running them here replaces your fork's build with upstream's and drops the container off Caddy's
+network, which takes the site down with a 502. <strong>The banner is a notification, not a button to
+press.</strong> Update with the commands on this page instead.</p></div>
+<h3>Reading the banner correctly</h3>
+<p>It compares <code>APP_VERSION</code> against upstream's latest GitHub release, so that value has to be real semver. <code>fork</code> or <code>dev</code> are not — and an unparseable version does more than break the banner: it silently switches off the plugin compatibility gate, letting a plugin built for a different TREK major load anyway.</p>
+<p>Keep it as <code>MAJOR.MINOR.PATCH+fork</code>. The <code>+fork</code> is build metadata, which is legal semver and still compares as the release underneath it, so you get an accurate banner, a working plugin gate, and a version string that says this is your build.</p>
 <h3>Deploying your own changes</h3>
 <p>Commit and push from your Mac as usual, then on the droplet:</p>
 <div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
 git pull
+
+# Derive APP_VERSION from package.json so it can never go stale.
+# A shell variable overrides the value in .env.
+export APP_VERSION=&quot;$(grep -m1 &#x27;&quot;version&quot;&#x27; package.json | cut -d&#x27;&quot;&#x27; -f4)+fork&quot;
+echo &quot;building $APP_VERSION&quot;
+
 docker compose -f docker-compose.prod.yml up -d --build
 docker image prune -f</code></pre></div>
 <p>Your <code>data/</code>, <code>uploads/</code> and <code>.env</code> are untouched by this — they are bind mounts and gitignored, sitting outside the image entirely.</p>
@@ -802,7 +831,7 @@ git fetch upstream</code></pre></div>
 git merge upstream/main
 # resolve conflicts if you&#x27;ve modified the same files
 git push origin main</code></pre></div>
-<p>And deploy it with the <code>git pull</code> block above.</p>
+<p>Then deploy with the <code>git pull</code> block above — it re-reads the version from <code>package.json</code>, so merging upstream's release automatically bumps what the admin panel reports and clears the banner.</p>
 <div class="call warn"><span class="lab">Read the release notes before a major version</span>
 <p>Database migrations run automatically at boot and are not reversible. Run
 <code>deploy/backup.sh</code> before any upgrade that crosses a major version, and check
