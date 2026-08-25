@@ -1,0 +1,97 @@
+# TREK — production stack for a DigitalOcean Droplet.
+#
+#   Caddy terminates TLS on 80/443 and proxies to the TREK container over the
+#   internal compose network. TREK itself publishes no host port, so the only
+#   way in is through Caddy.
+#
+# Usage (from /opt/trek):
+#   docker compose -f docker-compose.prod.yml up -d --build
+
+services:
+  trek:
+    # Built from this repo (your fork), not pulled from Docker Hub.
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        APP_VERSION: ${APP_VERSION:-fork}
+    image: trek-fork:latest
+    container_name: trek
+    read_only: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      # CHOWN/SETUID/SETGID: the entrypoint chowns the data dirs then drops to
+      # the unprivileged `node` user via gosu.
+      - CHOWN
+      - SETUID
+      - SETGID
+    tmpfs:
+      - /tmp:noexec,nosuid,size=128m
+    # No `ports:` — deliberately. Reachable only from the caddy container.
+    expose:
+      - "3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - ENCRYPTION_KEY=${ENCRYPTION_KEY:?ENCRYPTION_KEY is required — see .env.example}
+      - TZ=${TZ:-UTC}
+      - LOG_LEVEL=${LOG_LEVEL:-info}
+      - APP_URL=${APP_URL}
+      - ALLOWED_ORIGINS=${APP_URL}
+      # Caddy terminates TLS and sets X-Forwarded-Proto; TRUST_PROXY=1 is the
+      # single hop. FORCE_HTTPS without TRUST_PROXY causes a redirect loop.
+      - FORCE_HTTPS=true
+      - TRUST_PROXY=1
+      - DEFAULT_LANGUAGE=${DEFAULT_LANGUAGE:-en}
+      # Only read on first boot, when no user exists yet. Blank these after
+      # your first successful login.
+      - ADMIN_EMAIL=${ADMIN_EMAIL:-}
+      - ADMIN_PASSWORD=${ADMIN_PASSWORD:-}
+      # Optional. Datacenter IPs are often blocked from Unsplash's anonymous
+      # endpoint, which breaks trip-cover image search on a VPS.
+      - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
+    volumes:
+      - ./data:/app/data
+      - ./uploads:/app/uploads
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  caddy:
+    image: caddy:2-alpine
+    container_name: caddy
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    environment:
+      - TREK_DOMAIN=${TREK_DOMAIN:?TREK_DOMAIN is required, e.g. trek.example.com}
+      - ACME_EMAIL=${ACME_EMAIL:-}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # issued certificates live here — keep this volume
+      - caddy_config:/config
+    depends_on:
+      - trek
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  caddy_data:
+  caddy_config:

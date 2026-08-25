@@ -66,3 +66,8 @@ test-data
 
 .run
 .full-review
+
+# Deployment runtime data (bind-mounted into the container on the server)
+/data/
+/uploads/
+/backups/

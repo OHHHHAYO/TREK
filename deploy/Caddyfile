@@ -1,0 +1,22 @@
+# Caddy obtains and renews a Let's Encrypt certificate automatically.
+# WebSocket upgrades (/ws) and the Mcp-Session-Id header (/mcp) pass through
+# by default — no extra directives needed.
+
+{
+	email {$ACME_EMAIL}
+}
+
+{$TREK_DOMAIN} {
+	encode zstd gzip
+
+	# TREK caps backup-restore uploads at 500 MB server-side; match it here so
+	# the proxy is never the thing that rejects a restore.
+	request_body {
+		max_size 500MB
+	}
+
+	reverse_proxy trek:3000 {
+		# Server-Sent Events on /mcp must not be buffered.
+		flush_interval -1
+	}
+}

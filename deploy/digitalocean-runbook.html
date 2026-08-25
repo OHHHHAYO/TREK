@@ -1,0 +1,979 @@
+<title>TREK on DigitalOcean</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700&family=Source+Serif+4:ital,opsz,wght@0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,400&family=JetBrains+Mono:wght@400;500;600&display=swap">
+<style>
+:root{
+  --ground:#F6F8F7; --surface:#FFFFFF; --surface-2:#EEF2F0;
+  --ink:#141D1A; --ink-2:#3D4A46; --ink-3:#5F6D68;
+  --rule:#D9E2DE; --rule-2:#C4D0CB;
+  --blaze:#0F6B52; --blaze-ink:#0B4E3C; --blaze-wash:#E6F1EC;
+  --caution:#9A5B06; --caution-wash:#FBF0DE; --caution-rule:#E8CFA1;
+  --stop:#9E2C26; --stop-wash:#FAEAE8; --stop-rule:#E9C2BE;
+  --code-bg:#12201C; --code-ink:#D7E4DF; --code-ink-2:#8FA8A0;
+  --shadow:0 1px 2px rgba(20,29,26,.06), 0 8px 24px -16px rgba(20,29,26,.28);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --ground:#0E1412; --surface:#151D1A; --surface-2:#1B2522;
+    --ink:#E5EDE9; --ink-2:#B2C1BB; --ink-3:#87968F;
+    --rule:#26332E; --rule-2:#334340;
+    --blaze:#48C79B; --blaze-ink:#6FDCB6; --blaze-wash:#122C24;
+    --caution:#E3AB57; --caution-wash:#2A2114; --caution-rule:#4A3A1D;
+    --stop:#EC8A7F; --stop-wash:#2C1917; --stop-rule:#4D2A26;
+    --code-bg:#0A100E; --code-ink:#D2E1DB; --code-ink-2:#7B928B;
+    --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+  }
+}
+:root[data-theme="dark"]{
+  --ground:#0E1412; --surface:#151D1A; --surface-2:#1B2522;
+  --ink:#E5EDE9; --ink-2:#B2C1BB; --ink-3:#87968F;
+  --rule:#26332E; --rule-2:#334340;
+  --blaze:#48C79B; --blaze-ink:#6FDCB6; --blaze-wash:#122C24;
+  --caution:#E3AB57; --caution-wash:#2A2114; --caution-rule:#4A3A1D;
+  --stop:#EC8A7F; --stop-wash:#2C1917; --stop-rule:#4D2A26;
+  --code-bg:#0A100E; --code-ink:#D2E1DB; --code-ink-2:#7B928B;
+  --shadow:0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.7);
+}
+
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%; scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){ html{scroll-behavior:auto} *{animation:none!important; transition:none!important} }
+
+body{
+  margin:0; background:var(--ground); color:var(--ink);
+  font-family:"Source Serif 4", Charter, Georgia, serif;
+  font-size:17px; line-height:1.7; font-synthesis-weight:none;
+}
+
+.wrap{max-width:1160px; margin:0 auto; padding:0 24px 120px; display:grid; grid-template-columns:1fr; gap:0}
+@media (min-width:1040px){
+  .wrap{grid-template-columns:216px minmax(0,1fr); gap:56px; padding-right:40px}
+}
+
+/* ── masthead ─────────────────────────────────────────── */
+.mast{grid-column:1/-1; padding:64px 0 40px; border-bottom:1px solid var(--rule)}
+.eyebrow{
+  font-family:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:11px; letter-spacing:.16em; text-transform:uppercase;
+  color:var(--blaze); margin:0 0 18px; font-weight:500;
+}
+h1{
+  font-family:Archivo, "Helvetica Neue", Helvetica, Arial, sans-serif;
+  font-weight:700; font-size:clamp(34px,5.4vw,54px); line-height:1.04;
+  letter-spacing:-.028em; margin:0 0 18px; text-wrap:balance; color:var(--ink);
+}
+.standfirst{font-size:19px; line-height:1.6; color:var(--ink-2); max-width:60ch; margin:0}
+.mast-meta{
+  display:flex; flex-wrap:wrap; gap:8px 10px; margin-top:26px;
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:11.5px;
+}
+.mast-meta span{
+  border:1px solid var(--rule-2); color:var(--ink-3);
+  padding:4px 9px; border-radius:2px; letter-spacing:.03em;
+}
+
+/* ── route rail ───────────────────────────────────────── */
+.rail{display:none}
+@media (min-width:1040px){
+  .rail{
+    display:block; position:sticky; top:0; align-self:start;
+    max-height:100vh; overflow-y:auto; padding:44px 0 40px;
+  }
+}
+.rail-label{
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10.5px;
+  letter-spacing:.18em; text-transform:uppercase; color:var(--ink-3);
+  margin:0 0 14px; padding-bottom:10px; border-bottom:1px solid var(--rule);
+}
+.rail ol{list-style:none; margin:0; padding:0; display:flex; flex-direction:column; gap:1px}
+.rail a{
+  display:grid; grid-template-columns:22px 1fr; gap:8px; align-items:baseline;
+  text-decoration:none; color:var(--ink-2); padding:6px 8px 6px 0;
+  font-family:Archivo, Helvetica, Arial, sans-serif; font-size:13px; line-height:1.35;
+  border-radius:2px; transition:color .12s ease, background .12s ease;
+}
+.rail a .n{
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10.5px;
+  color:var(--ink-3); font-variant-numeric:tabular-nums;
+}
+.rail a:hover{color:var(--blaze); background:var(--blaze-wash)}
+.rail a:hover .n{color:var(--blaze)}
+.rail a:focus-visible{outline:2px solid var(--blaze); outline-offset:2px}
+
+/* ── content ──────────────────────────────────────────── */
+main{min-width:0; padding-top:44px; display:flex; flex-direction:column; gap:52px}
+section{scroll-margin-top:20px; min-width:0}
+.sec-head{display:grid; grid-template-columns:auto 1fr; gap:14px; align-items:baseline; margin:0 0 20px}
+.sec-n{
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:12px; font-weight:600;
+  color:var(--blaze); background:var(--blaze-wash); border:1px solid var(--rule-2);
+  border-radius:2px; padding:3px 7px; font-variant-numeric:tabular-nums;
+  position:relative; top:-2px;
+}
+h2{
+  font-family:Archivo, Helvetica, Arial, sans-serif; font-weight:700;
+  font-size:clamp(23px,3vw,30px); line-height:1.15; letter-spacing:-.018em;
+  margin:0; text-wrap:balance; color:var(--ink);
+}
+h3{
+  font-family:Archivo, Helvetica, Arial, sans-serif; font-weight:600;
+  font-size:16.5px; letter-spacing:-.005em; margin:34px 0 12px; color:var(--ink);
+}
+h3:first-of-type{margin-top:26px}
+p{margin:0 0 15px; max-width:68ch}
+main > section > p:last-child{margin-bottom:0}
+a{color:var(--blaze); text-underline-offset:2px; text-decoration-thickness:1px}
+a:focus-visible{outline:2px solid var(--blaze); outline-offset:2px; border-radius:2px}
+strong{font-weight:700; color:var(--ink)}
+ul,ol{margin:0 0 15px; padding-left:22px; max-width:68ch}
+li{margin:0 0 7px}
+li::marker{color:var(--ink-3)}
+code{
+  font-family:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:.855em; background:var(--surface-2); border:1px solid var(--rule);
+  padding:1px 5px; border-radius:3px; color:var(--ink);
+  overflow-wrap:break-word;
+}
+
+/* ── code blocks ──────────────────────────────────────── */
+.cb{
+  margin:0 0 18px; border:1px solid var(--rule-2); border-radius:4px;
+  overflow:hidden; background:var(--code-bg); box-shadow:var(--shadow);
+}
+.cb-h{
+  display:flex; align-items:center; justify-content:space-between; gap:12px;
+  padding:7px 13px; background:rgba(255,255,255,.045);
+  border-bottom:1px solid rgba(255,255,255,.09);
+}
+.cb-h .host{
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10.5px;
+  letter-spacing:.11em; text-transform:uppercase; color:var(--code-ink-2); font-weight:500;
+}
+.cb-h .tag{
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:10px;
+  letter-spacing:.09em; text-transform:uppercase; color:var(--code-ink-2);
+  border:1px solid rgba(255,255,255,.16); border-radius:2px; padding:2px 6px; white-space:nowrap;
+}
+.cb pre{
+  margin:0; padding:14px 15px; overflow-x:auto;
+  font-family:"JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size:13px; line-height:1.62; color:var(--code-ink); tab-size:2;
+}
+.cb pre code{background:none; border:0; padding:0; font-size:inherit; color:inherit}
+.cb .cm{color:var(--code-ink-2)}
+
+/* ── callouts ─────────────────────────────────────────── */
+.call{border:1px solid var(--rule-2); background:var(--surface); border-radius:3px; padding:14px 16px; margin:0 0 18px; max-width:70ch}
+.call > p{margin:0 0 10px}
+.call > p:last-child{margin-bottom:0}
+.call .lab{
+  display:inline-block; font-family:"JetBrains Mono", ui-monospace, monospace;
+  font-size:10px; letter-spacing:.15em; text-transform:uppercase; font-weight:600;
+  margin-bottom:8px;
+}
+.call.note{background:var(--blaze-wash); border-color:var(--rule-2)}
+.call.note .lab{color:var(--blaze-ink)}
+.call.warn{background:var(--caution-wash); border-color:var(--caution-rule)}
+.call.warn .lab{color:var(--caution)}
+.call.stop{background:var(--stop-wash); border-color:var(--stop-rule)}
+.call.stop .lab{color:var(--stop)}
+.call.check{background:var(--surface); border-color:var(--blaze); border-style:dashed}
+.call.check .lab{color:var(--blaze)}
+
+/* ── tables ───────────────────────────────────────────── */
+.tw{overflow-x:auto; margin:0 0 18px; border:1px solid var(--rule-2); border-radius:4px; background:var(--surface)}
+table{border-collapse:collapse; width:100%; min-width:520px; font-size:14.5px}
+th,td{text-align:left; padding:10px 14px; border-bottom:1px solid var(--rule); vertical-align:top}
+thead th{
+  font-family:Archivo, Helvetica, Arial, sans-serif; font-size:11px; font-weight:600;
+  letter-spacing:.1em; text-transform:uppercase; color:var(--ink-2);
+  background:var(--surface-2); border-bottom:1px solid var(--rule-2); white-space:nowrap;
+}
+tbody tr:last-child td{border-bottom:0}
+td.num{font-variant-numeric:tabular-nums; white-space:nowrap;
+  font-family:"JetBrains Mono", ui-monospace, monospace; font-size:13px}
+table code{font-size:12.5px; background:var(--surface-2)}
+tfoot td{font-weight:700; background:var(--surface-2); border-top:1px solid var(--rule-2)}
+
+/* ── architecture figure ──────────────────────────────── */
+.arch{
+  border:1px solid var(--rule-2); border-radius:4px; background:var(--surface);
+  padding:22px; margin:0 0 20px; overflow-x:auto;
+}
+.arch svg{display:block; min-width:460px; width:100%; height:auto}
+
+/* ── footer ───────────────────────────────────────────── */
+footer{
+  grid-column:1/-1; margin-top:72px; padding-top:22px;
+  border-top:1px solid var(--rule); color:var(--ink-3); font-size:13.5px;
+}
+footer p{max-width:70ch; margin:0 0 8px}
+</style>
+
+<div class="wrap">
+
+  <header class="mast">
+    <p class="eyebrow">Deployment runbook · fork OHHHHAYO/TREK</p>
+    <h1>Putting TREK on a DigitalOcean Droplet</h1>
+    <p class="standfirst">Fifteen stages from an empty DigitalOcean account to your own
+    self-hosted travel planner on HTTPS — built from your fork's source, backed up nightly,
+    and reachable only through a proxy you control.</p>
+    <div class="mast-meta">
+      <span>Ubuntu 24.04 LTS</span>
+      <span>Docker Compose v2</span>
+      <span>Caddy · automatic TLS</span>
+      <span>SQLite · single node</span>
+      <span>≈ 90 min · ≈ $23/mo</span>
+    </div>
+  </header>
+
+  <nav class="rail" aria-label="Deployment stages">
+    <p class="rail-label">The route</p>
+    <ol>
+<li><a href="#shape"><span class="n">00</span><span>What you're deploying</span></a></li>
+<li><a href="#s01"><span class="n">01</span><span>Make an SSH key</span></a></li>
+<li><a href="#s02"><span class="n">02</span><span>DigitalOcean account</span></a></li>
+<li><a href="#s03"><span class="n">03</span><span>Domain &amp; DNS</span></a></li>
+<li><a href="#s04"><span class="n">04</span><span>Create the Droplet</span></a></li>
+<li><a href="#s05"><span class="n">05</span><span>Close the network</span></a></li>
+<li><a href="#s06"><span class="n">06</span><span>Point DNS at it</span></a></li>
+<li><a href="#s07"><span class="n">07</span><span>Harden the server</span></a></li>
+<li><a href="#s08"><span class="n">08</span><span>Install Docker</span></a></li>
+<li><a href="#s09"><span class="n">09</span><span>Deploy from your fork</span></a></li>
+<li><a href="#s10"><span class="n">10</span><span>First login</span></a></li>
+<li><a href="#s11"><span class="n">11</span><span>Backups</span></a></li>
+<li><a href="#s12"><span class="n">12</span><span>Updating</span></a></li>
+<li><a href="#s13"><span class="n">13</span><span>More apps here</span></a></li>
+<li><a href="#trouble"><span class="n">·</span><span>When it breaks</span></a></li>
+<li><a href="#files"><span class="n">·</span><span>Files added</span></a></li>
+    </ol>
+  </nav>
+
+  <main>
+
+<section id="shape">
+<div class="sec-head"><span class="sec-n">00</span><h2>What you are actually deploying</h2></div>
+<p>TREK is <strong>one stateful container</strong>. The NestJS API, the compiled React app, and the
+real-time WebSocket layer all listen on a single port (3000). Its database is <strong>SQLite</strong>
+at <code>/app/data/travel.db</code>, and uploaded photos, documents and trip files land on the
+local filesystem at <code>/app/uploads</code>. There is no Postgres driver and no S3 client anywhere
+in the server code — I checked.</p>
+<p>Two consequences drive every decision below:</p>
+<ul>
+<li><strong>It needs a real disk that survives restarts.</strong> That rules out DigitalOcean App
+Platform, whose filesystem is ephemeral — your trips and uploads would vanish on every redeploy.</li>
+<li><strong>It cannot be horizontally scaled.</strong> Two containers writing one SQLite file
+corrupts it. One droplet, one container, vertical scaling only.</li>
+</ul>
+<p>So: a single Droplet running Docker, with Caddy in front terminating TLS and proxying to TREK
+over a private container network. TREK itself publishes no host port at all.</p>
+
+
+<div class="arch"><svg viewBox="0 0 720 300" xmlns="http://www.w3.org/2000/svg" role="img"
+  aria-label="Architecture: browser over HTTPS to a DigitalOcean cloud firewall, then to Caddy on the droplet, then over a private Docker network to the TREK container, which reads and writes a SQLite database and an uploads directory on the droplet disk.">
+  <defs>
+    <marker id="ar" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="currentColor"/>
+    </marker>
+  </defs>
+  <g font-family="JetBrains Mono, ui-monospace, monospace" font-size="10.5" fill="currentColor" color="currentColor">
+
+    <!-- browser -->
+    <rect x="8" y="112" width="104" height="46" rx="3" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".55"/>
+    <text x="60" y="132" text-anchor="middle" opacity=".85">Browser</text>
+    <text x="60" y="146" text-anchor="middle" opacity=".5" font-size="9">/ PWA</text>
+
+    <line x1="114" y1="135" x2="158" y2="135" stroke="currentColor" stroke-width="1.1" opacity=".45" marker-end="url(#ar)"/>
+    <text x="136" y="126" text-anchor="middle" font-size="8.5" opacity=".55">443</text>
+
+    <!-- firewall -->
+    <rect x="160" y="104" width="74" height="62" rx="3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-dasharray="3 3" opacity=".55"/>
+    <text x="197" y="128" text-anchor="middle" font-size="9" opacity=".85">Cloud</text>
+    <text x="197" y="140" text-anchor="middle" font-size="9" opacity=".85">Firewall</text>
+    <text x="197" y="153" text-anchor="middle" font-size="8" opacity=".5">22·80·443</text>
+
+    <line x1="236" y1="135" x2="276" y2="135" stroke="currentColor" stroke-width="1.1" opacity=".45" marker-end="url(#ar)"/>
+
+    <!-- droplet -->
+    <rect x="278" y="34" width="418" height="234" rx="4" fill="none" stroke="currentColor" stroke-width="1.3" opacity=".7"/>
+    <text x="294" y="54" font-size="9" opacity=".6" letter-spacing="1.4">DROPLET · UBUNTU 24.04 · DOCKER</text>
+
+    <!-- caddy -->
+    <rect x="300" y="104" width="96" height="62" rx="3" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".85"/>
+    <text x="348" y="128" text-anchor="middle" opacity=".95">Caddy</text>
+    <text x="348" y="142" text-anchor="middle" font-size="8.5" opacity=".55">TLS · 80/443</text>
+    <text x="348" y="154" text-anchor="middle" font-size="8.5" opacity=".55">Let's Encrypt</text>
+
+    <line x1="398" y1="135" x2="446" y2="135" stroke="currentColor" stroke-width="1.1" opacity=".45" marker-end="url(#ar)"/>
+    <text x="422" y="127" text-anchor="middle" font-size="8" opacity=".55">3000</text>
+    <text x="422" y="150" text-anchor="middle" font-size="7.5" opacity=".42">private net</text>
+
+    <!-- trek -->
+    <rect x="448" y="96" width="112" height="78" rx="3" fill="none" stroke="currentColor" stroke-width="1.4"/>
+    <text x="504" y="122" text-anchor="middle" font-size="12" opacity="1">TREK</text>
+    <text x="504" y="137" text-anchor="middle" font-size="8.5" opacity=".55">NestJS + SPA</text>
+    <text x="504" y="149" text-anchor="middle" font-size="8.5" opacity=".55">WebSocket /ws</text>
+    <text x="504" y="162" text-anchor="middle" font-size="8" opacity=".45">read-only rootfs</text>
+
+    <!-- volumes -->
+    <line x1="562" y1="122" x2="600" y2="98" stroke="currentColor" stroke-width="1.1" opacity=".45" marker-end="url(#ar)"/>
+    <line x1="562" y1="150" x2="600" y2="182" stroke="currentColor" stroke-width="1.1" opacity=".45" marker-end="url(#ar)"/>
+
+    <rect x="602" y="74" width="80" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".7"/>
+    <text x="642" y="91" text-anchor="middle" font-size="9" opacity=".9">./data</text>
+    <text x="642" y="104" text-anchor="middle" font-size="8" opacity=".5">travel.db</text>
+
+    <rect x="602" y="164" width="80" height="42" rx="3" fill="none" stroke="currentColor" stroke-width="1.1" opacity=".7"/>
+    <text x="642" y="181" text-anchor="middle" font-size="9" opacity=".9">./uploads</text>
+    <text x="642" y="194" text-anchor="middle" font-size="8" opacity=".5">files · photos</text>
+
+    <text x="642" y="232" text-anchor="middle" font-size="8" opacity=".45">bind mounts —</text>
+    <text x="642" y="243" text-anchor="middle" font-size="8" opacity=".45">survive rebuilds</text>
+  </g>
+</svg></div>
+
+<h3>What it costs</h3>
+
+<div class="tw"><table>
+<thead><tr><th>Item</th><th>Choice</th><th>Approx. / month</th></tr></thead>
+<tbody>
+<tr><td>Droplet</td><td>Basic Regular · 2 vCPU · 2 GB · 60 GB</td><td class="num">$18</td></tr>
+<tr><td>Droplet backups</td><td>Optional, weekly snapshots (+20%)</td><td class="num">$3.60</td></tr>
+<tr><td>Cloud Firewall</td><td>Required</td><td class="num">free</td></tr>
+<tr><td>DNS hosting</td><td>DigitalOcean Domains</td><td class="num">free</td></tr>
+<tr><td>Monitoring &amp; alerts</td><td>Droplet agent</td><td class="num">free</td></tr>
+<tr><td>Bandwidth</td><td>4 TB included with the droplet</td><td class="num">free</td></tr>
+<tr><td>Domain name</td><td>Registered elsewhere (see stage 03)</td><td class="num">~$1/mo</td></tr>
+</tbody>
+<tfoot><tr><td colspan="2">Running total</td><td class="num">≈ $23/mo</td></tr></tfoot>
+</table></div>
+
+<h3>Why 2 GB is enough</h3>
+<p>Building the image is the only memory-hungry thing this server ever does, so the tier is chosen by measuring that, not by guessing. Both build stages were profiled on this codebase:</p>
+
+<div class="tw"><table>
+<thead><tr><th>Build stage</th><th>Tool</th><th>Peak memory</th></tr></thead>
+<tbody>
+<tr><td>Client bundle</td><td>Vite / Rollup — sourcemaps off</td><td class="num">1.11 GB</td></tr>
+<tr><td>Server compile</td><td><code>tsc</code></td><td class="num">0.56 GB</td></tr>
+<tr><td>Native <code>better-sqlite3</code></td><td>node-gyp / C++</td><td class="num">~0.4 GB</td></tr>
+</tbody>
+<tfoot><tr><td colspan="2">Peak — the stages run sequentially, so these do not add up</td><td class="num">≈ 1.1 GB</td></tr></tfoot>
+</table></div>
+<p>Against 2 GB, with Ubuntu and the Docker daemon taking roughly 400 MB between them, that leaves around 500 MB of headroom at the worst moment — plus the 4 GB swap file from stage 07 as a backstop. TREK at rest idles well under 1 GB, so running it was never the constraint.</p>
+<div class="call note"><span class="lab">If you want to go cheaper still</span>
+<p>The 2 GB / <strong>1</strong> vCPU tier (≈ $12/mo) also fits in memory. You give up the second core,
+which mostly costs you time during <code>npm ci</code> and the C++ compile — figure on a first build
+closer to 30 minutes than 15. Everything afterwards is identical.</p>
+<p>Resizing later is easy in one direction: <strong>Resize → CPU and RAM only</strong> is reversible.
+The disk-inclusive resize is not — growing the disk is a one-way door.</p>
+<p>Prices move; confirm the real figure on the droplet creation screen before you click Create.</p></div>
+</section>
+<section id="s01"><div class="sec-head"><span class="sec-n">01</span><h2>Make an SSH key</h2></div>
+<p>Do this first — DigitalOcean asks for the public half while creating the droplet, and a droplet created without one emails you a root password instead, which is worse in every way. Use a dedicated key rather than your existing <code>~/.ssh/identity</code>, so revoking access to this server never touches anything else.</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>ssh-keygen -t ed25519 -C &quot;trek-droplet&quot; -f ~/.ssh/trek_do
+
+# Copy the PUBLIC half to your clipboard (note the .pub)
+pbcopy &lt; ~/.ssh/trek_do.pub</code></pre></div>
+<p>Give it a passphrase when prompted, then add it to your keychain so you are not retyping it:</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>ssh-add --apple-use-keychain ~/.ssh/trek_do</code></pre></div>
+<div class="call stop"><span class="lab">Never share this</span><p>Send only <code>trek_do.pub</code> anywhere. The file without <code>.pub</code> is your private key — it never leaves this machine, never gets pasted into a web form, never goes in the repo.</p></div>
+<h3>Give the droplet a short name</h3>
+<p>Every later stage would otherwise start with <code>ssh -i ~/.ssh/trek_do trek@YOUR_DROPLET_IP</code>. An SSH config entry turns all of that into <code>ssh trek</code> — and <code>scp</code>, <code>rsync</code> and <code>git</code> pick it up for free.</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span><span class="tag">~/.ssh/config</span></div><pre><code>Host trek
+    User trek
+
+Host trek-root
+    User root
+
+# Shared by both. SSH takes the first value it finds for each keyword,
+# so the User lines above win and these fill in the rest.
+Host trek trek-root
+    HostName DROPLET_IP
+    IdentityFile ~/.ssh/trek_do
+    IdentitiesOnly yes
+    AddKeysToAgent yes
+    UseKeychain yes
+    ServerAliveInterval 60
+    ServerAliveCountMax 3</code></pre></div>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>chmod 600 ~/.ssh/config</code></pre></div>
+<p><code>IdentitiesOnly yes</code> stops SSH offering every key you own, which is what causes <em>too many authentication failures</em>. <code>ServerAliveInterval</code> keeps a session alive through the long image build in stage 09. Two hosts, because stages 07 and 08 run as root, before the <code>trek</code> user exists.</p>
+<div class="call warn"><span class="lab">Fill in the IP at stage 04</span>
+<p><code>DROPLET_IP</code> is a placeholder — the droplet does not exist yet. Until you replace it,
+connections fail with <em>Could not resolve hostname DROPLET_IP</em>, which is the reminder.</p></div>
+<h3>An iTerm2 profile that connects on open</h3>
+<p>iTerm2 reads any JSON dropped in its <code>DynamicProfiles</code> folder immediately — no restart, no clicking through Settings. This creates two profiles that open straight into a session, each colour-coded so you always know which machine — and which user — you are on.</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>mkdir -p ~/Library/Application\ Support/iTerm2/DynamicProfiles</code></pre></div>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span><span class="tag">DynamicProfiles/trek.json</span></div><pre><code>{
+  &quot;Profiles&quot;: [
+    {
+      &quot;Name&quot;: &quot;TREK · droplet&quot;,
+      &quot;Guid&quot;: &quot;trek-prod-droplet&quot;,
+      &quot;Dynamic Profile Parent Name&quot;: &quot;Default&quot;,
+      &quot;Custom Command&quot;: &quot;Yes&quot;,
+      &quot;Command&quot;: &quot;ssh trek&quot;,
+      &quot;Badge Text&quot;: &quot;TREK PROD&quot;
+    },
+    {
+      &quot;Name&quot;: &quot;TREK · droplet (root)&quot;,
+      &quot;Guid&quot;: &quot;trek-prod-droplet-root&quot;,
+      &quot;Dynamic Profile Parent Name&quot;: &quot;Default&quot;,
+      &quot;Custom Command&quot;: &quot;Yes&quot;,
+      &quot;Command&quot;: &quot;ssh trek-root&quot;,
+      &quot;Badge Text&quot;: &quot;TREK ROOT&quot;
+    }
+  ]
+}</code></pre></div>
+<p><code>Dynamic Profile Parent Name</code> inherits your existing font and theme, so only the command and badge are overridden. Open one with <strong>Profiles ▸ TREK · droplet</strong>, or <code>⌘O</code> and type <em>trek</em>.</p>
+<div class="call note"><span class="lab">Colour the root profile differently</span>
+<p>Give the root profile a red-tinted background and the normal one a green tint, under
+<strong>Settings ▸ Profiles ▸ Colors</strong>. The badge watermark plus a distinct background is
+what stops a stray <code>rm -rf</code> landing in the wrong window — cheap insurance, and the habit
+matters more the more servers you run.</p></div>
+</section>
+<section id="s02"><div class="sec-head"><span class="sec-n">02</span><h2>Set up the DigitalOcean account</h2></div>
+<ol>
+<li>Sign up at <a href="https://cloud.digitalocean.com/registrations/new">cloud.digitalocean.com</a>
+and verify your email.</li>
+<li>Add a payment method. DigitalOcean places a small temporary authorisation on the card to validate it.</li>
+<li>When asked to name a project, call it <strong>trek</strong>. Projects are just grouping —
+every resource you create below should be filed under it so your billing page stays readable.</li>
+<li>Go to <strong>Settings → Security → SSH Keys → Add SSH Key</strong>, paste the clipboard contents
+from stage 01, and name it <code>mac-trek</code>.</li>
+</ol>
+<div class="call note"><span class="lab">Two-factor</span><p>Turn on 2FA under <strong>Settings → Security</strong> now. This account can delete the droplet holding all your data; it deserves better than a password.</p></div>
+</section>
+<section id="s03"><div class="sec-head"><span class="sec-n">03</span><h2>Register a domain and hand DNS to DigitalOcean</h2></div>
+<p><strong>DigitalOcean does not sell domains.</strong> It hosts DNS for free, but the registration itself happens at a registrar. The one requirement this deployment imposes is that your registrar must let you <strong>point the domain at third-party nameservers</strong> — DigitalOcean's. Most do. One notable one does not.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Registrar</th><th>.com / yr</th><th>Custom nameservers</th><th>Verdict</th></tr></thead>
+<tbody>
+<tr>
+  <td><strong><a href="https://porkbun.com">Porkbun</a></strong></td>
+  <td class="num">≈ $10–11</td>
+  <td>Yes</td>
+  <td><strong>Recommended.</strong> Registration and renewal cost the same — no promo trap. WHOIS privacy, DNSSEC and email forwarding included free.</td>
+</tr>
+<tr>
+  <td><a href="https://www.namecheap.com">Namecheap</a></td>
+  <td class="num">≈ $11 yr 1, ≈ $16 after</td>
+  <td>Yes</td>
+  <td>Fine. Bigger, longer-established, free WHOIS privacy. You pay for that in the renewal step-up.</td>
+</tr>
+<tr>
+  <td><a href="https://domains.cloudflare.com">Cloudflare Registrar</a></td>
+  <td class="num">≈ $10 at cost</td>
+  <td><strong>No</strong></td>
+  <td>Cheapest, but <strong>incompatible with stage 03 as written</strong> — see below.</td>
+</tr>
+<tr>
+  <td>GoDaddy</td>
+  <td class="num">cheap yr 1, steep after</td>
+  <td>Yes</td>
+  <td>Avoid. Aggressive upsells and renewal pricing well above the others.</td>
+</tr>
+</tbody>
+</table></div>
+<div class="call warn"><span class="lab">Why Cloudflare Registrar is excluded</span>
+<p>Cloudflare sells domains at wholesale cost as a benefit of using Cloudflare's own DNS, and its
+registration agreement does not permit changing the nameservers — to move them you have to transfer
+the domain to another registrar. So you cannot delegate to DigitalOcean, and this stage breaks.</p>
+<p>That is a constraint, not a defect. If you would rather use Cloudflare, it is a perfectly good
+alternative: register there, skip DigitalOcean DNS entirely, and create the A record in Cloudflare's
+own dashboard instead. Leave it <strong>DNS only</strong> (grey cloud, not orange) — proxying puts
+Cloudflare's TLS in front of Caddy's, which complicates certificate issuance for no benefit here.</p></div>
+<p>Whichever you pick, expect $10–15/year for a <code>.com</code>. Prices quoted here are approximate — confirm at checkout.</p>
+<h3>Buying it at Porkbun</h3>
+<p>Roughly ten minutes, most of it deciding on a name.</p>
+<ol>
+<li><strong>Search the name.</strong> Go to <a href="https://porkbun.com">porkbun.com</a> and type your
+idea into the search box. Available names appear with a price; taken ones are struck through.</li>
+
+<li><strong>Read the price row, not the headline.</strong> Porkbun shows registration and renewal side
+by side. On a <code>.com</code> they should match at roughly $10–11. If a TLD catches your eye with a
+$1 first year, look at the renewal column before you fall in love — that is where the money is.</li>
+
+<li><strong>Add to cart</strong>, then <strong>decline every add-on.</strong> You will be offered web
+hosting, email hosting, and an SSL certificate. You need none of them: TREK is your hosting, and Caddy
+issues your certificate free in stage 09.</li>
+
+<li><strong>Create the account.</strong> Email and password. Use a password your manager generated, and
+turn on two-factor auth under account settings once you are in — whoever controls this domain controls
+where your app's traffic goes.</li>
+
+<li><strong>Enter real contact details.</strong> ICANN requires them to be accurate, and a domain
+registered with fake details can be suspended. They will not be public — WHOIS privacy is on by default
+and free, so queries return Porkbun's proxy rather than your home address.</li>
+
+<li><strong>Pay.</strong> Card, PayPal, or crypto. Expect a few cents of ICANN fee on top of the
+sticker price.</li>
+
+<li><strong>Verify the email ICANN sends you.</strong> Do this now, not later.</li>
+
+<li><strong>Check the toggles.</strong> In <strong>Domain Management</strong>, confirm
+<strong>auto-renew</strong> is on and <strong>domain lock</strong> is on. Both are on by default;
+confirm anyway.</li>
+</ol>
+<div class="call stop"><span class="lab">The 15-day clock</span>
+<p>Within minutes of registering, ICANN sends a verification email to the address you registered with.
+<strong>If you do not click that link within 15 days, the domain is suspended</strong> — it stops
+resolving, and your site goes dark with no obvious cause.</p>
+<p>It is the single most common way a new domain quietly breaks. Check your spam folder if it has not
+arrived within the hour.</p></div>
+<div class="call note"><span class="lab">Picking the name</span>
+<p>You need exactly one domain. TREK lives on a subdomain — <code>trek.lunabun.app</code> — so a
+single registration covers this project and anything you build later.</p>
+<p>Avoid free TLDs like <code>.tk</code>: they get revoked without notice and are widely blocklisted,
+which would silently break TREK's notification emails.</p></div>
+<div class="call note"><span class="lab">About .app and .dev</span>
+<p><code>.app</code> and <code>.dev</code> are on the HSTS preload list at the TLD level, so browsers
+refuse plain HTTP on them permanently. <strong>This deployment is unaffected</strong> — Caddy issues a
+real certificate in stage 09 and every request is HTTPS from the start regardless. If anything the TLD
+is a small bonus: protocol-downgrade attacks are impossible by construction.</p>
+<p>Certificate issuance is unaffected too, despite what you will find in forum threads. HSTS preload is
+a <em>browser</em> mechanism. Let's Encrypt's validators are not browsers, do not consult the preload
+list, and Caddy answers the ACME challenge on port 80 before any redirect happens.</p>
+<p>The one real consequence is a debugging one, in the troubleshooting table below: you cannot open
+<code>http://</code> in a browser to inspect a proxy error. Use <code>curl</code> and the container
+logs instead.</p></div>
+<h3>Delegate the nameservers to DigitalOcean</h3>
+<p>Your domain currently points at Porkbun's own nameservers. Repoint it:</p>
+<ol>
+<li>Click <strong>ACCOUNT</strong> (top right) → <strong>Domain Management</strong>.</li>
+<li>Find your domain and click the <strong>Details</strong> dropdown on the far right.</li>
+<li>Locate the <strong>Nameservers</strong> field and click the <strong>edit</strong> icon.</li>
+<li><strong>Delete every existing entry</strong> — all four <code>*.porkbun.com</code> lines — and
+replace them with the three below, one per line.</li>
+<li>Click <strong>Save Nameservers</strong>, then <strong>Submit</strong> on the confirmation prompt.
+Porkbun asks twice; the change is not saved until the second click.</li>
+</ol>
+<div class="cb"><div class="cb-h"><span class="host">Porkbun · Domain Management</span><span class="tag">nameservers</span></div><pre><code>ns1.digitalocean.com
+ns2.digitalocean.com
+ns3.digitalocean.com</code></pre></div>
+<p>Then, in the DigitalOcean console, go to <strong>Networking → Domains</strong>, type your domain, pick the <strong>trek</strong> project, and click <strong>Add Domain</strong>. You will add the actual A record in stage 06, once the droplet has an IP.</p>
+<div class="call warn"><span class="lab">This is the slow step</span>
+<p>Nameserver delegation typically settles in 15–60 minutes but is permitted to take up to 48 hours.
+Start it now and let it bake while you do stages 04 and 05.</p>
+<p>Check progress from your Mac — when this returns the DigitalOcean nameservers, you are through:</p></div>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>dig +short NS lunabun.app</code></pre></div>
+<div class="call note"><span class="lab">Which hostname to use</span><p>This guide assumes <code>trek.lunabun.app</code>. A subdomain keeps the apex free for a website later, and it makes the Caddy config and the certificate scope obvious. If you would rather use the bare domain, substitute it everywhere and use <code>@</code> as the record hostname in stage 06.</p></div>
+</section>
+<section id="s04"><div class="sec-head"><span class="sec-n">04</span><h2>Create the Droplet</h2></div>
+<p>From the console: <strong>Create → Droplets</strong>. Work down the page in this order.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Field</th><th>Set it to</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td>Region</td><td>Whichever is closest to you and the people you'll share trips with</td><td>Latency. Real-time collaboration runs over WebSocket, so round-trip time is felt directly.</td></tr>
+<tr><td>Datacenter</td><td>Leave the default within that region</td><td>No meaningful difference for a single droplet.</td></tr>
+<tr><td>Image</td><td><strong>OS → Ubuntu → 24.04 (LTS) x64</strong></td><td>LTS, supported to 2029, and the Docker apt repo tracks it.</td></tr>
+<tr><td>Droplet type</td><td><strong>Basic</strong></td><td>Shared CPU is plenty. TREK is I/O-bound, not compute-bound, once built.</td></tr>
+<tr><td>CPU options</td><td><strong>Regular · 2 vCPU / 2 GB / 60 GB</strong></td><td>Measured against the real build peak of ≈ 1.1 GB — see stage 00. The 1 vCPU tier also fits; it just builds slower.</td></tr>
+<tr><td>Authentication</td><td><strong>SSH Key</strong> → tick <code>mac-trek</code></td><td>Never choose Password here.</td></tr>
+<tr><td>Improved metrics &amp; alerting</td><td><strong>Tick it</strong></td><td>Free. Gives you disk and memory graphs, and lets you set alert policies.</td></tr>
+<tr><td>Backups</td><td>Tick, weekly, if the +20% is worth it to you</td><td>Whole-droplet restore. Complements — does not replace — stage 11.</td></tr>
+<tr><td>Hostname</td><td><code>trek-prod</code></td><td>Shows in your shell prompt and in alert emails.</td></tr>
+<tr><td>Project</td><td><strong>trek</strong></td><td>Keeps billing legible.</td></tr>
+</tbody>
+</table></div>
+<p>Click <strong>Create Droplet</strong>. Provisioning takes under a minute. When it finishes, copy the <strong>public IPv4 address</strong> from the droplet list — every remaining stage needs it.</p>
+<p>Put it straight into the SSH config you wrote in stage 01, so <code>ssh trek</code> works from here on:</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>sed -i &#x27;&#x27; &#x27;s/DROPLET_IP/203.0.113.10/&#x27; ~/.ssh/config   # &lt;- your real IPv4
+
+ssh -G trek | grep &#x27;^hostname&#x27;                          # confirm it took</code></pre></div>
+<div class="call note"><span class="lab">Leave these alone</span><p>Skip <strong>VPC</strong>, <strong>Block storage volumes</strong>, and <strong>User data</strong>. A single-node deployment needs none of them, and a block volume adds a mount you would have to keep in sync with the bind mounts.</p></div>
+</section>
+<section id="s05"><div class="sec-head"><span class="sec-n">05</span><h2>Close the network down</h2></div>
+<p>Go to <strong>Networking → Firewalls → Create Firewall</strong>. Name it <code>trek-fw</code>.</p>
+<p>Delete the default inbound rules and build exactly this set:</p>
+
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Protocol</th><th>Port</th><th>Sources</th></tr></thead>
+<tbody>
+<tr><td>SSH</td><td class="num">TCP</td><td class="num">22</td><td>Your home IP if it is static; otherwise <code>All IPv4</code>, <code>All IPv6</code></td></tr>
+<tr><td>HTTP</td><td class="num">TCP</td><td class="num">80</td><td><code>All IPv4</code>, <code>All IPv6</code></td></tr>
+<tr><td>HTTPS</td><td class="num">TCP</td><td class="num">443</td><td><code>All IPv4</code>, <code>All IPv6</code></td></tr>
+<tr><td>Custom</td><td class="num">UDP</td><td class="num">443</td><td><code>All IPv4</code>, <code>All IPv6</code></td></tr>
+</tbody>
+</table></div>
+<p>Leave the outbound rules at their permissive default — TREK makes outbound calls for weather, maps, place search and Let's Encrypt. Under <strong>Apply to Droplets</strong>, select <code>trek-prod</code>, then create.</p>
+<p>Port 80 has to stay open even though everything redirects to HTTPS: that is how Let's Encrypt validates your domain. UDP 443 is HTTP/3, which Caddy serves and which noticeably helps on mobile connections.</p>
+<div class="call note"><span class="lab">Why the cloud firewall and not UFW</span>
+<p>Docker writes its own iptables rules that sit <em>in front of</em> UFW, so a published container port
+is reachable even when UFW claims to be blocking it. It is one of the most common self-hosting mistakes.</p>
+<p>The DigitalOcean firewall runs on the hypervisor, outside your droplet entirely, so Docker cannot
+punch through it. That is your real perimeter. Note that port <strong>3000 is absent</strong> from the
+table above — and the compose file never publishes it to the host, so it is closed twice over.</p></div>
+</section>
+<section id="s06"><div class="sec-head"><span class="sec-n">06</span><h2>Point the domain at the droplet</h2></div>
+<p>In <strong>Networking → Domains</strong>, click your domain from stage 03 and add:</p>
+
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Hostname</th><th>Will direct to</th><th>TTL</th></tr></thead>
+<tbody>
+<tr><td class="num">A</td><td><code>trek</code></td><td>Your droplet's public IPv4</td><td class="num">3600</td></tr>
+</tbody>
+</table></div>
+<p>The dropdown lets you select the droplet by name instead of typing the IP — do that, so the record follows the droplet if its address ever changes.</p>
+<div class="call check"><span class="lab">Checkpoint — do not skip</span>
+<p>Caddy will request a certificate the moment it starts, and Let's Encrypt rate-limits repeated
+failures. Confirm DNS resolves to the right address <em>before</em> stage 09:</p></div>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>dig +short trek.lunabun.app
+# must print your droplet&#x27;s IPv4 and nothing else</code></pre></div>
+</section>
+<section id="s07"><div class="sec-head"><span class="sec-n">07</span><h2>Harden the server</h2></div>
+<p>First connection. Accept the host fingerprint when prompted.</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>ssh -i ~/.ssh/trek_do root@YOUR_DROPLET_IP</code></pre></div>
+<h3>Patch, and set a timezone</h3>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>apt update &amp;&amp; apt upgrade -y
+timedatectl set-timezone UTC</code></pre></div>
+<h3>Create a non-root user</h3>
+<p>You will run TREK as this user, not as root. It inherits your SSH key.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>adduser --gecos &quot;&quot; --disabled-password trek
+usermod -aG sudo trek
+rsync --archive --chown=trek:trek ~/.ssh /home/trek/</code></pre></div>
+<h3>Turn off root login and passwords over SSH</h3>
+<p>Write a drop-in rather than editing <code>sshd_config</code> directly — DigitalOcean images ship cloud-init files in <code>sshd_config.d/</code> that would override your edits.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>cat &gt; /etc/ssh/sshd_config.d/99-trek.conf &lt;&lt;&#x27;EOF&#x27;
+PermitRootLogin no
+PasswordAuthentication no
+KbdInteractiveAuthentication no
+EOF
+
+sshd -t &amp;&amp; systemctl restart ssh</code></pre></div>
+<div class="call stop"><span class="lab">Test before you close this window</span>
+<p>Keep the current root session <strong>open</strong>. In a second terminal, prove the new user works:</p></div>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span><span class="tag">new window</span></div><pre><code>ssh -i ~/.ssh/trek_do trek@YOUR_DROPLET_IP</code></pre></div>
+<p>Only once that lands at a shell prompt should you close the root session. If it fails, you still have the root window to fix it — otherwise your only way back in is the browser-based Droplet Console recovery.</p>
+<h3>Add swap</h3>
+<p>On a 2 GB droplet this step is load-bearing, not optional. The client bundle peaks at about 1.1 GB and the headroom above that is thin — swap is what turns a tight build into a safe one. It costs nothing while idle.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>fallocate -l 4G /swapfile
+chmod 600 /swapfile
+mkswap /swapfile
+swapon /swapfile
+echo &#x27;/swapfile none swap sw 0 0&#x27; &gt;&gt; /etc/fstab
+
+# Prefer RAM; use swap only under real pressure.
+echo &#x27;vm.swappiness=10&#x27; &gt; /etc/sysctl.d/99-swappiness.conf
+sysctl -p /etc/sysctl.d/99-swappiness.conf
+
+free -h</code></pre></div>
+<h3>Automatic security updates</h3>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>apt install -y unattended-upgrades
+cat &gt; /etc/apt/apt.conf.d/20auto-upgrades &lt;&lt;&#x27;EOF&#x27;
+APT::Periodic::Update-Package-Lists &quot;1&quot;;
+APT::Periodic::Unattended-Upgrade &quot;1&quot;;
+EOF</code></pre></div>
+</section>
+<section id="s08"><div class="sec-head"><span class="sec-n">08</span><h2>Install Docker</h2></div>
+<p>From Docker's own apt repository, not Ubuntu's — the distro package lags badly and omits the Compose v2 plugin this deployment uses.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · root</span></div><pre><code>apt install -y ca-certificates curl
+install -m 0755 -d /etc/apt/keyrings
+curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc
+chmod a+r /etc/apt/keyrings/docker.asc
+
+echo &quot;deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] \
+  https://download.docker.com/linux/ubuntu $(. /etc/os-release &amp;&amp; echo &quot;$VERSION_CODENAME&quot;) stable&quot; \
+  &gt; /etc/apt/sources.list.d/docker.list
+
+apt update
+apt install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+
+# Let the trek user drive Docker without sudo
+usermod -aG docker trek
+
+docker --version &amp;&amp; docker compose version</code></pre></div>
+<div class="call check"><span class="lab">Checkpoint</span><p>Both version commands must print. Then reconnect as <code>trek</code> — group membership only applies to new sessions.</p></div>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>ssh -i ~/.ssh/trek_do trek@YOUR_DROPLET_IP</code></pre></div>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker run --rm hello-world</code></pre></div>
+</section>
+<section id="s09"><div class="sec-head"><span class="sec-n">09</span><h2>Deploy from your fork</h2></div>
+<p>I added three files to your repo for this — a production compose file, a Caddy config, and an env template. They are committed to your fork, so the droplet gets them with the clone.</p>
+<h3>Clone it</h3>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>sudo mkdir -p /opt/trek
+sudo chown trek:trek /opt/trek
+git clone https://github.com/OHHHHAYO/TREK.git /opt/trek
+cd /opt/trek
+mkdir -p data uploads</code></pre></div>
+<h3>Configure</h3>
+<p>Generate the encryption key first and keep the output visible — you need to paste it in a moment.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cp .env.example .env
+chmod 600 .env
+openssl rand -hex 32
+nano .env</code></pre></div>
+<p>Fill in these five. Everything else has a working default.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Variable</th><th>Value</th></tr></thead>
+<tbody>
+<tr><td><code>TREK_DOMAIN</code></td><td><code>trek.lunabun.app</code> — Caddy requests a certificate for exactly this name</td></tr>
+<tr><td><code>APP_URL</code></td><td><code>https://trek.lunabun.app</code> — used for CORS and links in notification emails</td></tr>
+<tr><td><code>ENCRYPTION_KEY</code></td><td>The 64-character hex string you just generated</td></tr>
+<tr><td><code>ACME_EMAIL</code></td><td>Your email, for Let's Encrypt expiry warnings</td></tr>
+<tr><td><code>TZ</code></td><td>Your timezone, e.g. <code>America/New_York</code> — drives reminders and scheduled jobs</td></tr>
+</tbody>
+</table></div>
+<p>Leave <code>ADMIN_EMAIL</code> and <code>ADMIN_PASSWORD</code> blank; TREK will print a generated admin password to the log on first boot, which avoids ever writing one to disk.</p>
+<div class="call stop"><span class="lab">Back up the encryption key now</span>
+<p><code>ENCRYPTION_KEY</code> encrypts every secret TREK stores — API keys, MFA seeds, SMTP credentials,
+OIDC secrets — with AES-256-GCM. <strong>Lose it and no backup can recover them.</strong></p>
+<p>Put it in your password manager before you continue. Not in the repo, not in a note on the droplet:
+a backup and its key sitting on the same disk protect you from nothing.</p></div>
+<h3>Build and launch</h3>
+<p>This compiles the shared library, the React client and the NestJS server from your fork's source, then assembles the runtime image. <strong>Expect 10–25 minutes</strong> on this droplet the first time. Later builds reuse cached layers and are far quicker.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
+docker compose -f docker-compose.prod.yml up -d --build</code></pre></div>
+<p>Watch it come up:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker compose -f docker-compose.prod.yml logs -f</code></pre></div>
+<p>Caddy logs a certificate obtained for your domain within a few seconds of starting, provided stage 06 resolved correctly. Press <code>Ctrl-C</code> to stop following — the containers keep running.</p>
+<div class="call check"><span class="lab">Checkpoint</span><p>Both containers healthy, and the app answering over TLS:</p></div>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker compose -f docker-compose.prod.yml ps
+curl -fsS https://trek.lunabun.app/api/health</code></pre></div>
+</section>
+<section id="s10"><div class="sec-head"><span class="sec-n">10</span><h2>First login, then lock the app down</h2></div>
+<p>Retrieve the generated admin credentials from the boot log:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker compose -f docker-compose.prod.yml logs trek | grep -iA4 &#x27;admin&#x27;</code></pre></div>
+<p>Open <code>https://trek.lunabun.app</code> and sign in. Then, in order:</p>
+<ol>
+<li><strong>Change the admin password immediately.</strong> TREK enforces 8+ characters with mixed case,
+a digit and a symbol, hashed with bcrypt.</li>
+<li><strong>Enable two-factor auth</strong> on your account under user settings. You must have it on
+yourself before you can require it of anyone else.</li>
+<li><strong>Turn off open registration</strong> in <strong>Admin → Users</strong> unless you genuinely
+want strangers signing up. Invite links are the better way to add people.</li>
+<li><strong>Configure automatic backups</strong> in the admin panel — schedule and retention. This is
+TREK's own internal backup, separate from stage 11.</li>
+<li><strong>Install it as an app</strong>: on iOS, Share → Add to Home Screen; on Android, Menu → Install app.
+This works now only because you have real HTTPS.</li>
+</ol>
+<div class="call note"><span class="lab">Optional: Unsplash key</span>
+<p>Trip-cover and place-image search uses Unsplash. Datacenter IP ranges — including DigitalOcean's — are
+frequently blocked from its unauthenticated endpoint, so image search may silently return nothing from a VPS.</p>
+<p>A free key from <a href="https://unsplash.com/developers">unsplash.com/developers</a> fixes it. Put it in
+<code>UNSPLASH_ACCESS_KEY</code> in <code>.env</code> and re-run the <code>up -d</code> command.</p></div>
+</section>
+<section id="s11"><div class="sec-head"><span class="sec-n">11</span><h2>Backups that actually restore</h2></div>
+<p>Three independent layers, each covering what the others miss.</p>
+
+<div class="tw"><table>
+<thead><tr><th>Layer</th><th>Covers</th><th>Gap it leaves</th></tr></thead>
+<tbody>
+<tr><td>DigitalOcean droplet backups</td><td>Total loss — droplet deleted, disk corrupt</td><td>Weekly only; restores the whole machine, not one trip</td></tr>
+<tr><td>TREK's admin auto-backup</td><td>Application-level restore through the UI</td><td>Lives on the same disk as the thing it is backing up</td></tr>
+<tr><td><code>deploy/backup.sh</code> + off-site copy</td><td>Everything, pulled to a machine you control</td><td>Only as good as your habit of checking it</td></tr>
+</tbody>
+</table></div>
+<h3>Nightly archive on the droplet</h3>
+<p>SQLite runs in WAL mode, so copying <code>travel.db</code> mid-write can capture a torn state. The script stops the container for the few seconds the archive takes — the simple guarantee of consistency — and restarts it even if the archive fails.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>crontab -e
+
+# add this line — 03:15 nightly
+15 3 * * * /opt/trek/deploy/backup.sh &gt;&gt; /opt/trek/backups/backup.log 2&gt;&amp;1</code></pre></div>
+<p>Run it once by hand first, so you find out now rather than during an incident:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>/opt/trek/deploy/backup.sh</code></pre></div>
+<h3>Pull a copy to your Mac</h3>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>mkdir -p ~/trek-backups
+rsync -avz -e &quot;ssh -i ~/.ssh/trek_do&quot; \
+  trek@YOUR_DROPLET_IP:/opt/trek/backups/ ~/trek-backups/</code></pre></div>
+<div class="call warn"><span class="lab">A backup you have never restored is a hypothesis</span>
+<p>Once, on purpose: copy an archive somewhere scratch, extract it, and confirm
+<code>data/travel.db</code> and your <code>uploads/</code> files are really in there. Restoring is
+the reverse of the script — stop the stack, replace <code>data/</code> and <code>uploads/</code>,
+start it again.</p></div>
+</section>
+<section id="s12"><div class="sec-head"><span class="sec-n">12</span><h2>Updating, and tracking upstream</h2></div>
+<h3>Deploying your own changes</h3>
+<p>Commit and push from your Mac as usual, then on the droplet:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
+git pull
+docker compose -f docker-compose.prod.yml up -d --build
+docker image prune -f</code></pre></div>
+<p>Your <code>data/</code>, <code>uploads/</code> and <code>.env</code> are untouched by this — they are bind mounts and gitignored, sitting outside the image entirely.</p>
+<h3>Pulling in upstream TREK releases</h3>
+<p>Your fork does not receive upstream commits automatically. Wire up the remote once, on your Mac:</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>cd ~/Desktop/TREK
+git remote add upstream https://github.com/liketrek/TREK.git
+git fetch upstream</code></pre></div>
+<p>Then, whenever you want the latest release:</p>
+<div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>git fetch upstream
+git merge upstream/main
+# resolve conflicts if you&#x27;ve modified the same files
+git push origin main</code></pre></div>
+<p>And deploy it with the <code>git pull</code> block above.</p>
+<div class="call warn"><span class="lab">Read the release notes before a major version</span>
+<p>Database migrations run automatically at boot and are not reversible. Run
+<code>deploy/backup.sh</code> before any upgrade that crosses a major version, and check
+<a href="https://github.com/liketrek/TREK/releases">the upstream releases page</a> for breaking changes.</p></div>
+<h3>If builds get tedious</h3>
+<p>Building on the droplet is self-contained, which is why it is the default here. If you end up deploying often, move the build to GitHub Actions in your fork, push the image to GHCR, and have the droplet only pull it. That drops deploys to seconds and lets you shrink the droplet to the 2 GB tier permanently, since it would no longer need build headroom. Worth doing once you are shipping changes regularly — not before.</p>
+</section>
+<section id="s13"><div class="sec-head"><span class="sec-n">13</span><h2>Running more apps on this droplet</h2></div>
+<p>One domain can absolutely host several apps — but give each one its own <strong>subdomain</strong>, not a path. <code>lunabun.app/trek</code> does not work, and the reason is in TREK's source rather than in your proxy config.</p>
+<h3>Why not <code>/trek</code></h3>
+
+<div class="tw"><table>
+<thead><tr><th>Layer</th><th>What it assumes</th><th>Effect at <code>/trek</code></th></tr></thead>
+<tbody>
+<tr><td>Vite build</td><td>No <code>base</code> configured</td><td>Assets are requested from <code>/assets/…</code> — 404 on every script and stylesheet</td></tr>
+<tr><td>React Router</td><td><code>BrowserRouter</code> with no <code>basename</code></td><td><code>/trek/trips</code> matches no route; navigation lands nowhere</td></tr>
+<tr><td>API client</td><td><code>baseURL: '/api'</code>, plus ~958 hardcoded <code>/api/…</code> call sites</td><td>Every request goes to the wrong origin path</td></tr>
+<tr><td>WebSocket</td><td><code>`${protocol}://${location.host}/ws`</code> — built from the host, prefix ignored</td><td>Real-time sync never connects</td></tr>
+<tr><td>Server routes</td><td><code>/api</code>, <code>/ws</code>, <code>/uploads</code>, <code>/oauth</code>, <code>/.well-known</code> mounted at root</td><td>Would each need a prefix-aware rewrite</td></tr>
+<tr><td>Session cookie</td><td><code>path: '/'</code></td><td>Scoped to the whole origin regardless</td></tr>
+</tbody>
+</table></div>
+<p>There is no <code>BASE_PATH</code> setting and no Nest global prefix — sub-path hosting is simply not a supported mode. Proxy rewrites cannot fix it, because the broken URLs are baked into the JavaScript the browser has already downloaded. Making it work means patching the Vite config, the router, the WebSocket builder and every call site — a fork that would conflict on every upstream merge, forever.</p>
+<div class="call note"><span class="lab">Subdomains are the better design anyway</span>
+<p>This is not a consolation prize. Browsers scope cookies and <code>localStorage</code> by
+<em>origin</em>, so several apps sharing <code>lunabun.app</code> share one cookie jar — an XSS
+flaw in any one of them can read TREK's session cookie. Separate subdomains are separate origins,
+and the browser enforces the boundary for you.</p>
+<p>You also get a clean PWA scope and an independent certificate per app.</p></div>
+<h3>The pattern</h3>
+<p>One droplet, one Caddy, many apps — each on its own hostname and its own internal port, none of them published to the host.</p>
+<p><strong>1. DNS.</strong> In <strong>Networking → Domains</strong>, add one A record per app, each pointing at the same droplet:</p>
+
+<div class="tw"><table>
+<thead><tr><th>Type</th><th>Hostname</th><th>Will direct to</th></tr></thead>
+<tbody>
+<tr><td class="num">A</td><td><code>trek</code></td><td>Droplet IPv4</td></tr>
+<tr><td class="num">A</td><td><code>blog</code></td><td>Droplet IPv4</td></tr>
+<tr><td class="num">A</td><td><code>whatever</code></td><td>Droplet IPv4</td></tr>
+</tbody>
+</table></div>
+<p>A wildcard <code>*</code> record works too and saves a step per app, at the cost of every typo'd subdomain resolving to your droplet. Explicit records are easier to reason about until you are adding apps often.</p>
+<p><strong>2. A shared Docker network</strong>, so Caddy can reach containers that live in other compose projects:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker network create web</code></pre></div>
+<p>Then add it to each service in <code>docker-compose.prod.yml</code>, and declare it as external at the bottom of the file:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span><span class="tag">docker-compose.prod.yml</span></div><pre><code>services:
+  trek:
+    networks: [web]
+    # ... rest unchanged
+  caddy:
+    networks: [web]
+
+networks:
+  web:
+    external: true</code></pre></div>
+<p><strong>3. One Caddy site block per app.</strong> Caddy fetches a separate certificate for each hostname automatically, and refuses hostnames it has no block for.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span><span class="tag">deploy/Caddyfile</span></div><pre><code>{$TREK_DOMAIN} {
+	encode zstd gzip
+	request_body {
+		max_size 500MB
+	}
+	reverse_proxy trek:3000 {
+		flush_interval -1
+	}
+}
+
+blog.lunabun.app {
+	encode zstd gzip
+	reverse_proxy blog:8080
+}</code></pre></div>
+<p>Reload Caddy without dropping connections:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker compose -f docker-compose.prod.yml exec caddy \
+  caddy reload --config /etc/caddy/Caddyfile</code></pre></div>
+<div class="call warn"><span class="lab">Watch the ceiling</span>
+<p>The 4 GB droplet comfortably runs TREK plus a couple of small services. It will not run TREK plus a
+second database-backed app plus an image processor — and because TREK holds its database on local disk,
+the fix when you outgrow the box is a bigger box, not a second one.</p>
+<p>Keep an eye on <code>free -h</code> and <code>df -h</code>, and set a DigitalOcean alert policy on
+memory while you are adding things.</p></div>
+</section>
+<section id="trouble"><div class="sec-head"><span class="sec-n">·</span><h2>When something breaks</h2></div>
+
+<div class="tw"><table>
+<thead><tr><th>Symptom</th><th>Cause</th><th>Fix</th></tr></thead>
+<tbody>
+<tr>
+  <td>Browser refuses <code>http://trek.lunabun.app</code> outright</td>
+  <td>Expected — <code>.app</code> is HSTS-preloaded, so the browser upgrades to HTTPS before sending anything</td>
+  <td>Not a fault. To inspect a proxy error use <code>curl -v</code> from the droplet, or read <code>docker compose -f docker-compose.prod.yml logs caddy</code></td>
+</tr>
+<tr>
+  <td>Caddy loops retrying the certificate</td>
+  <td>DNS not resolving to the droplet, or port 80 closed</td>
+  <td><code>dig +short trek.lunabun.app</code> must return the droplet IP; confirm the stage 05 firewall has TCP 80 open to all</td>
+</tr>
+<tr>
+  <td>Endless HTTPS redirect loop</td>
+  <td><code>FORCE_HTTPS</code> on without <code>TRUST_PROXY</code></td>
+  <td>Both are set in the compose file — check you did not comment one out</td>
+</tr>
+<tr>
+  <td>Build killed partway, no error</td>
+  <td>Out of memory — the build peaks near 1.1 GB</td>
+  <td>Confirm swap is active with <code>free -h</code> (stage 07). If swap is on and it still dies, resize up one tier temporarily, build, then resize back with <strong>CPU and RAM only</strong></td>
+</tr>
+<tr>
+  <td><code>Cannot find module 'tsconfig-paths/register'</code></td>
+  <td>A volume was mounted at <code>/app</code>, hiding the app code</td>
+  <td>Mount only <code>./data</code> and <code>./uploads</code> — never <code>/app</code></td>
+</tr>
+<tr>
+  <td>502 from Caddy</td>
+  <td>TREK container down or still starting</td>
+  <td><code>docker compose -f docker-compose.prod.yml ps</code>, then <code>logs trek</code></td>
+</tr>
+<tr>
+  <td>Edits don't sync between browsers live</td>
+  <td>WebSocket upgrade not reaching <code>/ws</code></td>
+  <td>Caddy handles this natively — check the browser console for the <code>/ws</code> connection error</td>
+</tr>
+<tr>
+  <td>Trip cover image search returns nothing</td>
+  <td>DigitalOcean IP blocked by Unsplash's anonymous endpoint</td>
+  <td>Set <code>UNSPLASH_ACCESS_KEY</code> (stage 10)</td>
+</tr>
+<tr>
+  <td>Locked out of the admin account</td>
+  <td>Lost password, MFA device gone</td>
+  <td><code>docker compose -f docker-compose.prod.yml exec trek node /app/server/reset-admin.js</code></td>
+</tr>
+<tr>
+  <td>Disk filling up</td>
+  <td>Old images and build cache</td>
+  <td><code>docker system prune -a</code> — safe; it never touches your bind mounts</td>
+</tr>
+</tbody>
+</table></div>
+<h3>The commands worth memorising</h3>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
+alias dc=&#x27;docker compose -f docker-compose.prod.yml&#x27;
+
+dc ps                 # what is running, and is it healthy
+dc logs -f trek       # follow application logs
+dc logs -f caddy      # follow TLS / proxy logs
+dc restart trek       # restart just the app
+dc down &amp;&amp; dc up -d   # full stack bounce
+df -h &amp;&amp; free -h      # disk and memory at a glance</code></pre></div>
+</section>
+<section id="files"><div class="sec-head"><span class="sec-n">·</span><h2>What was added to your fork</h2></div>
+
+<div class="tw"><table>
+<thead><tr><th>File</th><th>Purpose</th></tr></thead>
+<tbody>
+<tr><td><code>docker-compose.prod.yml</code></td><td>The two-container stack. Builds TREK from your fork's source; Caddy in front. TREK publishes no host port, keeps a read-only root filesystem, and drops every Linux capability except the three its entrypoint needs.</td></tr>
+<tr><td><code>deploy/Caddyfile</code></td><td>Automatic TLS for <code>TREK_DOMAIN</code>. Raises the body limit to 500 MB to match TREK's server-side cap so a backup restore is never rejected by the proxy, and disables response buffering so MCP's server-sent events arrive live.</td></tr>
+<tr><td><code>.env.example</code></td><td>Annotated template. Copy to <code>.env</code> on the droplet — the real file is gitignored and never leaves the server.</td></tr>
+<tr><td><code>deploy/backup.sh</code></td><td>Consistent nightly archive of <code>data/</code>, <code>uploads/</code> and <code>.env</code>, with retention pruning.</td></tr>
+<tr><td><code>.gitignore</code></td><td>Extended to ignore the runtime <code>data/</code>, <code>uploads/</code> and <code>backups/</code> directories that appear at the repo root on the server.</td></tr>
+</tbody>
+</table></div>
+<p>The stock <code>docker-compose.yml</code> at the repo root is untouched — it pulls the published upstream image and is still there if you ever want to run TREK unmodified.</p>
+</section>
+  </main>
+
+  <footer>
+    <p>Every command is labelled with where it runs — your Mac, the droplet as root, the droplet as
+    the <code>trek</code> user, or the DigitalOcean web console. Commands are written for
+    <code>trek.lunabun.app</code>; the only placeholder left to substitute is
+    <code>YOUR_DROPLET_IP</code>, which you get in stage 04.</p>
+    <p>TREK is licensed AGPL v3. Self-hosting for personal or internal use is unrestricted; offering a
+    modified version as a network service to third parties obliges you to publish those modifications.</p>
+  </footer>
+
+</div>
