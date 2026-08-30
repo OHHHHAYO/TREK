@@ -797,47 +797,104 @@ rsync -avz -e &quot;ssh -i ~/.ssh/trek_do&quot; \
 the reverse of the script — stop the stack, replace <code>data/</code> and <code>uploads/</code>,
 start it again.</p></div>
 </section>
-<section id="s12"><div class="sec-head"><span class="sec-n">12</span><h2>Updating, and tracking upstream</h2></div>
-<div class="call stop"><span class="lab">Ignore the admin panel&#x27;s “How to Update” button</span>
+<section id="s12"><div class="sec-head"><span class="sec-n">12</span><h2>Updating and rebuilding</h2></div>
+<p>Three different things get called "updating", and they need different commands. Find your row first.</p>
+
+<div class="tw"><table>
+<thead><tr><th>What changed</th><th>Where you start</th><th>Go to</th></tr></thead>
+<tbody>
+<tr><td>Your own code or deploy config</td><td>Push from your Mac</td><td>The standard update below</td></tr>
+<tr><td>Upstream released a new TREK</td><td>Merge upstream into your fork first</td><td><a href="#s12-upstream">Tracking upstream</a></td></tr>
+<tr><td>Only a value in <code>.env</code></td><td>Edit on the droplet — nothing to pull</td><td><code>docker compose -f docker-compose.prod.yml up -d</code>, no rebuild</td></tr>
+</tbody>
+</table></div>
+<div class="call stop"><span class="lab">Never press the admin panel&#x27;s “How to Update” button</span>
 <p>The banner reading <em>TREK vX is available</em> is upstream's notifier, and its button shows
-upstream's instructions: <code>docker compose pull</code> or a bare <code>docker run</code>. Those
-are written for people running the published image with no reverse proxy.</p>
-<p>Running them here replaces your fork's build with upstream's and drops the container off Caddy's
-network, which takes the site down with a 502. <strong>The banner is a notification, not a button to
-press.</strong> Update with the commands on this page instead.</p></div>
-<h3>Reading the banner correctly</h3>
-<p>It compares <code>APP_VERSION</code> against upstream's latest GitHub release, so that value has to be real semver. <code>fork</code> or <code>dev</code> are not — and an unparseable version does more than break the banner: it silently switches off the plugin compatibility gate, letting a plugin built for a different TREK major load anyway.</p>
-<p>Keep it as <code>MAJOR.MINOR.PATCH+fork</code>. The <code>+fork</code> is build metadata, which is legal semver and still compares as the release underneath it, so you get an accurate banner, a working plugin gate, and a version string that says this is your build.</p>
-<h3>Deploying your own changes</h3>
-<p>Commit and push from your Mac as usual, then on the droplet:</p>
+upstream's instructions: <code>docker compose pull</code>, or a bare <code>docker run</code>. Those are
+written for people running the published image with no reverse proxy.</p>
+<p>Run them here and you replace your fork's build with upstream's <em>and</em> drop the container off
+Caddy's network — the site returns 502 while the container looks perfectly healthy.
+<strong>The banner is a notification, not a button.</strong></p></div>
+<h3>The standard update</h3>
+<p>Four steps, in this order. Steps 1 and 4 are the ones people skip and later wish they had not.</p>
+<p><strong>1. Back up.</strong> Cheap, and it doubles as a check that your backup script still works.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
+./deploy/backup.sh</code></pre></div>
+<p><strong>2. Pull and rebuild.</strong> The <code>export</code> derives the version from <code>package.json</code> so it can never go stale; a shell variable overrides whatever <code>.env</code> says.</p>
 <div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
 git pull
 
-# Derive APP_VERSION from package.json so it can never go stale.
-# A shell variable overrides the value in .env.
 export APP_VERSION=&quot;$(grep -m1 &#x27;&quot;version&quot;&#x27; package.json | cut -d&#x27;&quot;&#x27; -f4)+fork&quot;
 echo &quot;building $APP_VERSION&quot;
 
 docker compose -f docker-compose.prod.yml up -d --build
 docker image prune -f</code></pre></div>
-<p>Your <code>data/</code>, <code>uploads/</code> and <code>.env</code> are untouched by this — they are bind mounts and gitignored, sitting outside the image entirely.</p>
-<h3>Pulling in upstream TREK releases</h3>
-<p>Your fork does not receive upstream commits automatically. Wire up the remote once, on your Mac:</p>
+<p><strong>3. Reconcile <code>.env</code></strong> — see the warning below. Skip only if you know no new variables were added.</p>
+<p><strong>4. Verify.</strong> Both containers healthy, and the app answering over TLS:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker compose -f docker-compose.prod.yml ps
+curl -fsS https://trek.lunabun.app/api/health</code></pre></div>
+<p>If either looks wrong, read the logs before touching anything else:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>docker compose -f docker-compose.prod.yml logs --tail 40 trek</code></pre></div>
+<div class="call warn"><span class="lab">git pull never updates your .env</span>
+<p><code>.env</code> is gitignored — it holds your live secrets and git will not touch it, in either
+direction. So when a new setting is added, it arrives in <code>.env.example</code> and your real
+<code>.env</code> silently stays as it was. The app then runs on a default you did not choose.</p>
+<p>After any pull that touched the template, diff the two and copy across what is missing:</p></div>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
+diff &lt;(grep -o &#x27;^[A-Z_]*=&#x27; .env.example | sort) \
+     &lt;(grep -o &#x27;^[A-Z_]*=&#x27; .env | sort)</code></pre></div>
+<p>Lines marked <code>&lt;</code> exist in the template but not in your file. Add them with <code>nano .env</code>, then re-run step 2's <code>up -d</code>.</p>
+<h3>What a rebuild does and does not touch</h3>
+
+<div class="tw"><table>
+<thead><tr><th>Path</th><th>On rebuild</th><th>Why</th></tr></thead>
+<tbody>
+<tr><td><code>data/</code> — the SQLite database</td><td><strong>Preserved</strong></td><td>Bind mount; lives on the droplet, never inside the image</td></tr>
+<tr><td><code>uploads/</code> — photos, documents</td><td><strong>Preserved</strong></td><td>Bind mount</td></tr>
+<tr><td><code>.env</code> — your secrets</td><td><strong>Preserved</strong></td><td>Gitignored and read at container start</td></tr>
+<tr><td>Caddy's certificates</td><td><strong>Preserved</strong></td><td>Named volume <code>caddy_data</code>; survives <code>down</code> and <code>up</code></td></tr>
+<tr><td>Application code, <code>node_modules</code></td><td>Rebuilt</td><td>Baked into the image from your fork's source</td></tr>
+<tr><td>Database schema</td><td><strong>Migrated forward</strong></td><td>Runs automatically at boot, and does not roll back — hence step 1</td></tr>
+</tbody>
+</table></div>
+<p>Because only the image is replaced, an update is normally quick: unchanged layers come from cache, so a config-only change rebuilds in a minute or two rather than the 10–25 of the first build.</p>
+<h3 id="s12-upstream">Tracking upstream</h3>
+<p>Your fork does not receive upstream commits on its own. Wire up the remote once, on your Mac:</p>
 <div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>cd ~/Desktop/TREK
 git remote add upstream https://github.com/liketrek/TREK.git
 git fetch upstream</code></pre></div>
-<p>Then, whenever you want the latest release:</p>
+<p>Then, whenever the banner reports a genuinely newer release:</p>
 <div class="cb"><div class="cb-h"><span class="host">Your Mac · Terminal</span></div><pre><code>git fetch upstream
-git merge upstream/main
-# resolve conflicts if you&#x27;ve modified the same files
+git merge upstream/main        # resolve conflicts if you have edited the same files
 git push origin main</code></pre></div>
-<p>Then deploy with the <code>git pull</code> block above — it re-reads the version from <code>package.json</code>, so merging upstream's release automatically bumps what the admin panel reports and clears the banner.</p>
+<p>Then run the standard update on the droplet. Because step 2 reads the version out of <code>package.json</code>, merging an upstream release automatically bumps what the admin panel reports and clears the banner — there is no version number to maintain by hand.</p>
+<div class="call note"><span class="lab">Why APP_VERSION has to be real semver</span>
+<p>It drives two things: the update banner, which compares it against upstream's latest release, and
+the plugin compatibility gate. A value like <code>fork</code> or <code>dev</code> fails
+<code>semver.valid()</code>, and an unparseable host version does not merely break the banner — it
+<em>silently switches the plugin gate off</em>, letting a plugin built for a different TREK major load
+anyway.</p>
+<p><code>3.4.1+fork</code> is the right shape. Everything after <code>+</code> is build metadata, which
+is legal semver and still compares as the release underneath it — so you get an accurate banner, a
+working gate, and a string that identifies this as your build.</p></div>
 <div class="call warn"><span class="lab">Read the release notes before a major version</span>
-<p>Database migrations run automatically at boot and are not reversible. Run
-<code>deploy/backup.sh</code> before any upgrade that crosses a major version, and check
+<p>Migrations run automatically at boot and are forward-only. Before any upgrade that crosses a major
+version, run <code>./deploy/backup.sh</code> and read
 <a href="https://github.com/liketrek/TREK/releases">the upstream releases page</a> for breaking changes.</p></div>
+<h3>If an update goes wrong</h3>
+<p>Roll the code back and rebuild. Your data is untouched by this — only the image changes.</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
+git log --oneline -5                    # find the commit that worked
+git checkout &lt;commit-sha&gt;
+docker compose -f docker-compose.prod.yml up -d --build</code></pre></div>
+<p>If the database itself was migrated by the bad version, code alone will not fix it — restore the archive from step 1:</p>
+<div class="cb"><div class="cb-h"><span class="host">Droplet · trek user</span></div><pre><code>cd /opt/trek
+docker compose -f docker-compose.prod.yml down
+tar -xzf /opt/trek/backups/trek-YYYYMMDD-HHMMSS.tar.gz -C /opt/trek
+docker compose -f docker-compose.prod.yml up -d</code></pre></div>
+<p>Return to the tip of your branch afterwards with <code>git checkout main</code>.</p>
 <h3>If builds get tedious</h3>
-<p>Building on the droplet is self-contained, which is why it is the default here. If you end up deploying often, move the build to GitHub Actions in your fork, push the image to GHCR, and have the droplet only pull it. That drops deploys to seconds and lets you shrink the droplet to the 2 GB tier permanently, since it would no longer need build headroom. Worth doing once you are shipping changes regularly — not before.</p>
+<p>Building on the droplet is self-contained, which is why it is the default here. If you end up deploying often, move the build to GitHub Actions in your fork, push the image to GHCR, and have the droplet only pull it. Deploys drop to seconds, and the droplet no longer needs build headroom. Worth doing once you are shipping changes regularly — not before.</p>
 </section>
 <section id="s13"><div class="sec-head"><span class="sec-n">13</span><h2>Running more apps on this droplet</h2></div>
 <p>One domain can absolutely host several apps — but give each one its own <strong>subdomain</strong>, not a path. <code>lunabun.app/trek</code> does not work, and the reason is in TREK's source rather than in your proxy config.</p>
