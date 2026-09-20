@@ -14,7 +14,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        APP_VERSION: ${APP_VERSION:-4.1.1}
+        APP_VERSION: ${APP_VERSION:-4.3.0}
     image: trek-fork:latest
     container_name: trek
     read_only: true
@@ -53,6 +53,22 @@ services:
       # Optional. Datacenter IPs are often blocked from Unsplash's anonymous
       # endpoint, which breaks trip-cover image search on a VPS.
       - UNSPLASH_ACCESS_KEY=${UNSPLASH_ACCESS_KEY:-}
+      # ── New in 4.3.0 ──────────────────────────────────────────────────────
+      # Place search asks TREK's hosted index (places.liketrek.com) beside
+      # OpenStreetMap. Listed explicitly, and defaulted to the same value the
+      # app would pick anyway, so that "searches leave this droplet" is a
+      # visible line in the stack rather than an unstated default. There is no
+      # admin-panel switch for it by design. Set false in .env to keep every
+      # search local, as 4.1.1 did.
+      - TREK_PLACES_ENABLED=${TREK_PLACES_ENABLED:-true}
+      # Optional, all of them. Blank is safe: the boot-time env schema treats
+      # unset and blank alike and falls back to the documented default — only a
+      # present-but-malformed value aborts startup.
+      - TREK_PLACES_URL=${TREK_PLACES_URL:-}
+      - NOMINATIM_URL=${NOMINATIM_URL:-}
+      - LLM_TIMEOUT_MS=${LLM_TIMEOUT_MS:-}
+      - AMAP_API_KEY=${AMAP_API_KEY:-}
+      - AMAP_API_SECRET=${AMAP_API_SECRET:-}
     volumes:
       - ./data:/app/data
       - ./uploads:/app/uploads
