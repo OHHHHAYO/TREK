@@ -12,6 +12,7 @@ import { DatabaseModule } from '../../src/nest/database/database.module';
 import { RealtimeModule } from '../../src/nest/realtime/realtime.module';
 import { Test } from '@nestjs/testing';
 import { seedUser, sessionCookie } from './harness';
+import { MAX_TRIP_DAYS } from '@trek/shared';
 
 const { db } = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -39,7 +40,7 @@ const { db } = vi.hoisted(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`);
   // deleteTrip cleans up synced journey entries before dropping the trip row.
   tmp.exec(`CREATE TABLE journey_entries (id INTEGER PRIMARY KEY AUTOINCREMENT, journey_id INTEGER,
-    source_trip_id INTEGER, source_place_id INTEGER, type TEXT NOT NULL);`);
+    source_trip_id INTEGER, source_place_id INTEGER, source_assignment_id INTEGER, type TEXT NOT NULL);`);
   // bundle()'s todoItems now runs TodoService's real SQL (DI-injected, no mock).
   tmp.exec(`CREATE TABLE todo_items (id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL,
     name TEXT NOT NULL, checked INTEGER NOT NULL DEFAULT 0, category TEXT, sort_order INTEGER NOT NULL DEFAULT 0,
@@ -57,8 +58,9 @@ const { db } = vi.hoisted(() => {
   // bundle()'s files now runs FilesService's real SQL (DI-injected, no mock) —
   // empty tables satisfy the FILE_SELECT joins and the file_links batch.
   tmp.exec(`CREATE TABLE trip_files (id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL,
-    place_id INTEGER, reservation_id INTEGER, filename TEXT NOT NULL, original_name TEXT NOT NULL,
-    file_size INTEGER, mime_type TEXT, description TEXT, uploaded_by INTEGER, starred INTEGER DEFAULT 0,
+    place_id INTEGER, reservation_id INTEGER, message_id INTEGER, filename TEXT NOT NULL,
+    original_name TEXT NOT NULL, file_size INTEGER, mime_type TEXT, description TEXT,
+    uploaded_by INTEGER, starred INTEGER DEFAULT 0,
     deleted_at DATETIME, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`);
   tmp.exec(`CREATE TABLE file_links (id INTEGER PRIMARY KEY AUTOINCREMENT, file_id INTEGER NOT NULL,
     reservation_id INTEGER, assignment_id INTEGER, place_id INTEGER,
@@ -71,7 +73,7 @@ const { db } = vi.hoisted(() => {
     status TEXT DEFAULT 'pending', reservation_time TEXT, reservation_end_time TEXT, location TEXT,
     confirmation_number TEXT, notes TEXT, url TEXT, accommodation_id TEXT, metadata TEXT,
     needs_review INTEGER DEFAULT 0, day_plan_position REAL, external_source TEXT, sync_enabled INTEGER,
-    created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`);
+    ingest_state TEXT, created_at DATETIME DEFAULT CURRENT_TIMESTAMP);`);
   tmp.exec('CREATE TABLE days (id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL, day_number INTEGER, date TEXT);');
   tmp.exec(`CREATE TABLE places (id INTEGER PRIMARY KEY AUTOINCREMENT, trip_id INTEGER NOT NULL, name TEXT,
     image_url TEXT, address TEXT, lat REAL, lng REAL, category_id INTEGER, description TEXT,
@@ -196,6 +198,33 @@ describe('Trips e2e (real auth guard + temp SQLite)', () => {
     expect(forbidden.status).toBe(403);
   });
 
+  it('201 create keeps every day of a trip longer than a year (#2403)', async () => {
+    // 2025-01-26 .. 2026-01-28 is 368 days; the day list used to stop at 365.
+    const res = await request(server).post('/api/trips').set('Cookie', sessionCookie(1))
+      .send({ title: 'Gap year', start_date: '2025-01-26', end_date: '2026-01-28' });
+    expect(res.status).toBe(201);
+    expect(res.body.trip).toMatchObject({ start_date: '2025-01-26', end_date: '2026-01-28', day_count: 368 });
+    const last = db.prepare('SELECT day_number, date FROM days WHERE trip_id = ? ORDER BY day_number DESC LIMIT 1')
+      .get(res.body.trip.id) as { day_number: number; date: string };
+    expect(last).toEqual({ day_number: 368, date: '2026-01-28' });
+  });
+
+  it('400 on a date range past MAX_TRIP_DAYS, for create and update alike', async () => {
+    const tooLong = await request(server).post('/api/trips').set('Cookie', sessionCookie(1))
+      .send({ title: 'Decade', start_date: '2026-01-01', end_date: '2036-01-01' });
+    expect(tooLong.status).toBe(400);
+    expect(tooLong.body).toEqual({ error: `A trip can span at most ${MAX_TRIP_DAYS} days` });
+    expect(db.prepare('SELECT COUNT(*) AS n FROM trips').get()).toEqual({ n: 0 });
+
+    const week = await request(server).post('/api/trips').set('Cookie', sessionCookie(1))
+      .send({ title: 'Week', start_date: '2026-07-01', end_date: '2026-07-07' });
+    const stretched = await request(server).put(`/api/trips/${week.body.trip.id}`).set('Cookie', sessionCookie(1))
+      .send({ end_date: '2036-07-01' });
+    expect(stretched.status).toBe(400);
+    expect(stretched.body).toEqual({ error: `A trip can span at most ${MAX_TRIP_DAYS} days` });
+    expect(db.prepare('SELECT end_date FROM trips WHERE id = ?').get(week.body.trip.id)).toEqual({ end_date: '2026-07-07' });
+  });
+
   it('404 on a missing trip', async () => {
     const res = await request(server).get('/api/trips/77').set('Cookie', sessionCookie(1));
     expect(res.status).toBe(404);
@@ -231,6 +260,18 @@ describe('Trips e2e (real auth guard + temp SQLite)', () => {
       const res = await request(server).get('/api/trips/active').set('Cookie', sessionCookie(1));
       expect(Object.keys(res.body.trip).sort()).toEqual(['end_date', 'id', 'start_date', 'title']);
     });
+  });
+
+  // Real CalendarService against the temp db: a title carrying U+3000 slipped
+  // through the old \s keep-class into setHeader and 500'd the export (#2165).
+  it('200 export.ics with a header-safe filename for a title full of ideographic whitespace', async () => {
+    const tripId = Number(db.prepare('INSERT INTO trips (user_id, title, start_date, end_date) VALUES (1, ?, ?, ?)')
+      .run('沖縄　4泊5日', '2026-05-01', '2026-05-05').lastInsertRowid);
+    const res = await request(server).get(`/api/trips/${tripId}/export.ics`).set('Cookie', sessionCookie(1));
+    expect(res.status).toBe(200);
+    expect(res.headers['content-type']).toContain('text/calendar');
+    expect(res.headers['content-disposition']).toBe('attachment; filename="___4_5_.ics"');
+    expect(res.text).toContain('BEGIN:VCALENDAR');
   });
 
   it('200 bundle for an accessible trip (real member list)', async () => {

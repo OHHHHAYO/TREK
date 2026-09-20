@@ -138,7 +138,7 @@ describe('Tool: search_provider_photos', () => {
       const data = parseToolResult(result) as any;
       expect(data.assets).toEqual([SYNOLOGY_ASSET]);
       expect(data.total).toBe(1);
-      expect(synologySearch).toHaveBeenCalledWith(user.id, undefined, undefined, 40, 20);
+      expect(synologySearch).toHaveBeenCalledWith(user.id, undefined, undefined, 40, 20, 0);
     });
   });
 
@@ -146,7 +146,21 @@ describe('Tool: search_provider_photos', () => {
     const { user } = createUser(testDb);
     await withHarness(user.id, async (h) => {
       await h.client.callTool({ name: 'search_provider_photos', arguments: { provider: 'synologyphotos' } });
-      expect(synologySearch).toHaveBeenCalledWith(user.id, undefined, undefined, 0, 100);
+      expect(synologySearch).toHaveBeenCalledWith(user.id, undefined, undefined, 0, 100, 0);
+    });
+  });
+
+  it('tells Synology which zone the dates are meant in, so a tool call is fixable too', async () => {
+    const { user } = createUser(testDb);
+    await withHarness(user.id, async (h) => {
+      const result = await h.client.callTool({
+        name: 'search_provider_photos',
+        arguments: { provider: 'synologyphotos', from: '2026-03-15', to: '2026-03-15', utc_offset_minutes: 600 },
+      });
+      expect(result.isError).toBeFalsy();
+      // The tool takes calendar days and has no browser to ask, so the caller
+      // says which 24 hours it means; omitted stays the UTC day (#2336).
+      expect(synologySearch).toHaveBeenCalledWith(user.id, '2026-03-15', '2026-03-15', 0, 100, 600);
     });
   });
 
@@ -220,6 +234,32 @@ describe('Tool: search_provider_photos', () => {
       expect(names).not.toContain('search_provider_photos');
       expect(names).not.toContain('list_provider_albums');
       expect(names).not.toContain('list_provider_album_photos');
+    });
+  });
+
+  it('is not registered while the journey addon is off, however the provider rows read', async () => {
+    const { user } = createUser(testDb);
+    setAddonEnabled(testDb, ADDON_IDS.JOURNEY, false);
+    await withHarness(user.id, async (h) => {
+      const names = (await h.client.listTools()).tools.map(t => t.name);
+      expect(names).not.toContain('search_provider_photos');
+      expect(names).not.toContain('list_provider_albums');
+      expect(names).not.toContain('list_provider_album_photos');
+    });
+  });
+
+  it('refuses mid-session once the journey addon goes off, without calling the provider', async () => {
+    const { user } = createUser(testDb);
+    await withHarness(user.id, async (h) => {
+      // Registered while journey was on; the flip lands after session start.
+      setAddonEnabled(testDb, ADDON_IDS.JOURNEY, false);
+      const result = await h.client.callTool({
+        name: 'search_provider_photos',
+        arguments: { provider: 'immich' },
+      });
+      expect(result.isError).toBe(true);
+      expect((result as any).content[0].text).toContain('is not enabled, contact server administrator');
+      expect(immichSearch).not.toHaveBeenCalled();
     });
   });
 

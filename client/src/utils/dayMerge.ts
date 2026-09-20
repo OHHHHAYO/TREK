@@ -1,3 +1,4 @@
+import { chronoOrder } from '@trek/shared'
 // `orderedEndpoints` is the geometry order's single source of truth, in the module
 // that documents the multi-leg model. Sorting endpoints a second time here is how
 // the two drift.
@@ -116,6 +117,21 @@ export function getTransportRouteEndpoints(
   }
 }
 
+/**
+ * Whether this booking is a carrier that contributes a located route endpoint on the
+ * given day — the signal that the day's geography changes by riding something rather
+ * than driving, which the hotel-bookend rules need on days without recorded
+ * check-in/check-out times (#2157). The span rules above make an overnight carrier
+ * count only on the days it actually touches. A carrier saved without coordinates
+ * deliberately does not count: it contributes nothing to the drawn route, so treating
+ * it as proof of travel would flip hotel legs on data the map cannot see.
+ */
+export function hasCarrierEndpointOnDay(r: any, dayId: number): boolean {
+  if (!isCarrierTransport(r)) return false
+  const { from, to } = getTransportRouteEndpoints(r, dayId)
+  return from != null || to != null
+}
+
 export function getDisplayTimeForDay(
   r: { day_id?: number | null; end_day_id?: number | null; reservation_time?: string | null; reservation_end_time?: string | null },
   dayId: number
@@ -221,30 +237,56 @@ export function getTransportForDay(opts: {
 }
 
 /**
+ * Every booking pinned to one day assignment. A stop can carry several (the parking
+ * pass and the tickets for the same zoo), and the exclusion above keeps all of them
+ * out of the timeline, so the place row is the only surface that can show them, and
+ * a `find()` there dropped the rest without trace (#2201).
+ *
+ * Earliest first, untimed last, id as the tiebreaker: the store's array order is
+ * newest-first for locally created bookings and load order otherwise, which would
+ * shuffle the same two bookings between a reload and a live update.
+ */
+export function getAssignmentReservations<T extends {
+  id: number
+  assignment_id?: number | null
+  reservation_time?: string | null
+}>(reservations: T[], assignmentId: number | null | undefined): T[] {
+  if (!assignmentId) return []
+  return reservations
+    .filter(r => r.assignment_id === assignmentId)
+    .sort((a, b) => {
+      const at = a.reservation_time || ''
+      const bt = b.reservation_time || ''
+      if (at !== bt) {
+        if (!at) return 1
+        if (!bt) return -1
+        return at < bt ? -1 : 1
+      }
+      return a.id - b.id
+    })
+}
+
+/**
  * Order items chronologically: anything with a time (a place's place_time, a
  * transport/leg display time, a timed note) sorts by that time. An item WITHOUT a
  * time inherits the time of the timed item before it, so untimed items stay where
  * they were manually placed. Stable on the incoming order for ties.
+ *
+ * The rule itself is `chronoOrder` in @trek/shared, the same one the server uses when
+ * a start time is saved. The server feeds it the day's stops only, though. An untimed
+ * place behind a timed note or booking inherits that item's time here and the previous
+ * stop's time there, so on such a day the stored order and this one can differ.
  */
 function applyChronoOrder(
   items: MergedItem[],
   dayId: number,
   getDisplayTime: (r: any, dayId: number) => string | null
 ): MergedItem[] {
-  const timeOf = (it: MergedItem): number | null => {
+  return chronoOrder(items, it => {
     if (it.type === 'place') return parseTimeToMinutes(it.data?.place?.place_time)
     if (it.type === 'note') return parseTimeToMinutes(it.data?.time)
     return parseTimeToMinutes(getDisplayTime(it.data, dayId))
-  }
-  let last = -Infinity
-  return items
-    .map((it, i) => {
-      const t = timeOf(it)
-      if (t != null) last = t
-      return { it, i, eff: t != null ? t : last }
-    })
-    .sort((a, b) => a.eff - b.eff || a.i - b.i)
-    .map(k => k.it)
+  })
 }
 
 /** Merge places, notes, and transports into a single ordered day timeline. */

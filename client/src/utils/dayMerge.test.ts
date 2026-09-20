@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { parseTimeToMinutes, getSpanPhase, hidesOnMiddleDay, getTransportRouteEndpoints, getDisplayTimeForDay, getTransportForDay, getMergedItems } from './dayMerge'
+import { parseTimeToMinutes, getSpanPhase, hidesOnMiddleDay, getTransportRouteEndpoints, getDisplayTimeForDay, getTransportForDay, getAssignmentReservations, getMergedItems } from './dayMerge'
 
 describe('parseTimeToMinutes', () => {
   it('parses HH:MM string', () => {
@@ -199,6 +199,41 @@ describe('getTransportForDay', () => {
   })
 })
 
+describe('getAssignmentReservations', () => {
+  it('returns every booking pinned to the assignment, not just the first (#2201)', () => {
+    const reservations = [
+      { id: 1, assignment_id: 42, reservation_time: '2025-06-01T10:00:00' },
+      { id: 2, assignment_id: 42, reservation_time: '2025-06-01T09:00:00' },
+      { id: 3, assignment_id: 7, reservation_time: '2025-06-01T08:00:00' },
+    ]
+    expect(getAssignmentReservations(reservations, 42).map(r => r.id)).toEqual([2, 1])
+  })
+
+  it('puts untimed bookings last and breaks ties on the id', () => {
+    const reservations = [
+      { id: 5, assignment_id: 42, reservation_time: null },
+      { id: 4, assignment_id: 42, reservation_time: null },
+      { id: 6, assignment_id: 42, reservation_time: '2025-06-01T09:00:00' },
+    ]
+    expect(getAssignmentReservations(reservations, 42).map(r => r.id)).toEqual([6, 4, 5])
+  })
+
+  it('returns nothing without an assignment', () => {
+    const reservations = [{ id: 1, assignment_id: 42, reservation_time: null }]
+    expect(getAssignmentReservations(reservations, null)).toEqual([])
+    expect(getAssignmentReservations(reservations, undefined)).toEqual([])
+  })
+
+  it('leaves the caller array untouched', () => {
+    const reservations = [
+      { id: 1, assignment_id: 42, reservation_time: '2025-06-01T10:00:00' },
+      { id: 2, assignment_id: 42, reservation_time: '2025-06-01T09:00:00' },
+    ]
+    getAssignmentReservations(reservations, 42)
+    expect(reservations.map(r => r.id)).toEqual([1, 2])
+  })
+})
+
 describe('getMergedItems', () => {
   it('merges places and notes sorted by sortKey', () => {
     const dayAssignments = [
@@ -240,5 +275,31 @@ describe('getMergedItems', () => {
     const result = getMergedItems({ dayAssignments, dayNotes: [], dayTransports, dayId: 5 })
     const types = result.map(i => i.type)
     expect(types).toEqual(['place', 'transport', 'place'])
+  })
+
+  // The same rule the server stores when a start time is saved, so on a day of places
+  // alone the day it sends back after the save and the day drawn before it agree.
+  it('keeps untimed places where they were put and sorts only the timed ones', () => {
+    const place = (id: number, order_index: number, place_time: string | null) => ({ id, order_index, place: { place_time } })
+    const ids = (dayAssignments: ReturnType<typeof place>[]) =>
+      getMergedItems({ dayAssignments, dayNotes: [], dayTransports: [], dayId: 5 }).map(i => i.data.id)
+
+    expect(ids([place(1, 0, null), place(2, 1, null), place(3, 2, '14:00')])).toEqual([1, 2, 3])
+    expect(ids([place(1, 0, '09:00'), place(2, 1, null), place(3, 2, '14:00')])).toEqual([1, 2, 3])
+    expect(ids([place(1, 0, null), place(2, 1, '15:00'), place(3, 2, '10:00')])).toEqual([1, 3, 2])
+  })
+
+  // Where the server's sort and this one part: the server sorts the stops alone, so
+  // for it place 2 follows the 09:00 place and stays in front of the 10:00 one. Here it
+  // follows the 12:00 note and is drawn behind both.
+  it('lets an untimed place take the time of a timed note in front of it', () => {
+    const dayAssignments = [
+      { id: 1, order_index: 0, place: { place_time: '09:00' } },
+      { id: 2, order_index: 1, place: { place_time: null } },
+      { id: 3, order_index: 2, place: { place_time: '10:00' } },
+    ]
+    const dayNotes = [{ id: 10, sort_order: 0.5, time: '12:00' }]
+    const result = getMergedItems({ dayAssignments, dayNotes, dayTransports: [], dayId: 5 })
+    expect(result.map(i => i.data.id)).toEqual([1, 3, 10, 2])
   })
 })

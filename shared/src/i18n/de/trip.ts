@@ -24,6 +24,7 @@ const trip: TranslationStrings = {
   'trip.toast.placeDeleted': 'Ort gelöscht',
   'trip.toast.selectDay': 'Bitte wähle zuerst einen Tag aus',
   'trip.toast.assignedToDay': 'Ort wurde dem Tag zugewiesen',
+  'trip.toast.loadError': 'Reise konnte nicht geladen werden',
   'trip.toast.reorderError': 'Fehler beim Sortieren',
   'trip.toast.reservationUpdated': 'Reservierung aktualisiert',
   'trip.toast.reservationAdded': 'Reservierung hinzugefügt',
@@ -63,6 +64,7 @@ const trip: TranslationStrings = {
   'transit.search': 'Suchen',
   'transit.searching': 'Suche …',
   'transit.searchError': 'Routensuche fehlgeschlagen. Bitte erneut versuchen.',
+  'transit.noResultsVia': 'Keine Verbindungen über {provider} gefunden. Versuche eine andere Zeit oder andere Filter.',
   'transit.noResults': 'Keine Verbindungen gefunden. Andere Zeit oder Filter probieren.',
   'transit.direct': 'Direkt',
   'transit.transfers': '{count} Umstiege',
@@ -78,6 +80,7 @@ const trip: TranslationStrings = {
   'transport.modeAutomated': 'Automatisch',
   'transit.sectionTitle': 'Automatische ÖPNV-Verbindungen',
   'transit.changeRoute': 'Route ändern',
+  'transit.editDetails': 'Details bearbeiten',
   'transit.journey': 'ÖPNV-Verbindung',
   'transit.pickDay': 'Wähle einen Tag, für den Verbindungen gesucht werden sollen.',
   'transit.noItinerary': 'Dieser Eintrag hat keine gespeicherte Verbindung — über „Route ändern" eine suchen.',
@@ -85,5 +88,7 @@ const trip: TranslationStrings = {
   'transit.transfersLabel': 'Umstiege',
   'transit.walkLabel': 'Fußweg',
   'transit.searchHint': 'Echte Verbindungen suchen und direkt zum Tag hinzufügen — Daten via Transitous.',
+  'trip.confirm.deletePlaceNight': 'Die in „{name}“ gebuchte Nacht geht mit dem Ort verloren.',
+  'trip.confirm.deletePlaceBooked': 'Die in „{name}“ gebuchte Nacht geht mit dem Ort verloren, zusammen mit der Buchung „{booking}“ und jeder damit verknüpften Ausgabe.',
 };
 export default trip;

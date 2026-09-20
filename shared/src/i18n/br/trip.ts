@@ -20,6 +20,7 @@ const trip: TranslationStrings = {
   'trip.toast.placeDeleted': 'Lugar excluído',
   'trip.toast.selectDay': 'Selecione um dia primeiro',
   'trip.toast.assignedToDay': 'Lugar atribuído ao dia',
+  'trip.toast.loadError': 'Não foi possível carregar a viagem',
   'trip.toast.reorderError': 'Falha ao reordenar',
   'trip.toast.reservationUpdated': 'Reserva atualizada',
   'trip.toast.reservationAdded': 'Reserva adicionada',
@@ -63,6 +64,7 @@ const trip: TranslationStrings = {
   'transit.search': 'Buscar',
   'transit.searching': 'Buscando…',
   'transit.searchError': 'Falha na busca de rota. Tente novamente.',
+  'transit.noResultsVia': 'Nenhuma conexão encontrada via {provider}. Tente outro horário ou outros filtros.',
   'transit.noResults': 'Nenhuma conexão encontrada. Tente outro horário ou filtros.',
   'transit.direct': 'Direto',
   'transit.transfers': '{count} baldeações',
@@ -78,6 +80,7 @@ const trip: TranslationStrings = {
   'transport.modeAutomated': 'Automático',
   'transit.sectionTitle': 'Transporte público automático',
   'transit.changeRoute': 'Alterar trajeto',
+  'transit.editDetails': 'Editar detalhes',
   'transit.journey': 'Viagem de transporte público',
   'transit.pickDay': 'Escolha um dia para buscar conexões.',
   'transit.noItinerary': 'Esta entrada não tem itinerário salvo — use "Alterar trajeto" para buscar um.',
@@ -85,5 +88,7 @@ const trip: TranslationStrings = {
   'transit.transfersLabel': 'Baldeações',
   'transit.walkLabel': 'A pé',
   'transit.searchHint': 'Busque conexões reais e adicione direto ao dia — dados via Transitous.',
+  'trip.confirm.deletePlaceNight': 'A noite reservada em “{name}” desaparece com o local.',
+  'trip.confirm.deletePlaceBooked': 'A noite reservada em “{name}” desaparece com o local, juntamente com a reserva “{booking}” e qualquer despesa associada.',
 };
 export default trip;

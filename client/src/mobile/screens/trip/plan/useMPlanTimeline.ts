@@ -4,15 +4,16 @@ import { useRouteCalculation } from '../../../../hooks/useRouteCalculation'
 import { assignmentsApi, reservationsApi, weatherApi } from '../../../../api/client'
 import { usePluginStore } from '../../../../store/pluginStore'
 import { getDayBookendHotels } from '../../../../utils/dayOrder'
-import { getDisplayTimeForDay, getMergedItems, getTransportForDay } from '../../../../utils/dayMerge'
+import { getDisplayTimeForDay, getMergedItems, getTransportForDay, hasCarrierEndpointOnDay } from '../../../../utils/dayMerge'
 import { dayCoMapsUrl, dayGoogleMapsUrl, optimizeDayOrder } from '../lib/dayRoute'
+import { buildTransitLeg, buildTransitNameIndex, type TransitLeg } from '../../../../components/Planner/transitLeg'
 import {
   buildPlanRows, breaksChronology, findUpNext, hotelChipsForDay, hotelLegsForDay, itemHasTime,
   type HotelLegs, type PlanRow, type TransportEntry,
 } from './planTimelineModel'
 import type { TripPlanner } from '../MTripShell'
 import type { WeatherResult } from '@trek/shared'
-import type { Assignment, Place } from '../../../../types'
+import type { Assignment, Place, RouteSegment } from '../../../../types'
 import type { MergedItem } from '../../../../utils/dayMerge'
 
 /**
@@ -53,6 +54,13 @@ export function useMPlanTimeline(planner: TripPlanner) {
     })
   }, [day, dayAssignments, dayNotes, reservations, days])
 
+  // A carrier with a located endpoint today — the exported deep links need it so
+  // their no-time hotel bookends match the drawn route (#2157).
+  const dayHasCarrier = useMemo(
+    () => !!day && merged.some(it => it.type === 'transport' && hasCarrierEndpointOnDay(it.data, day.id)),
+    [day, merged],
+  )
+
   // Travel-time connectors (walk · distance · drive between consecutive places)
   // are shown permanently on the mobile timeline. The planner's route instance
   // only computes segments while the manual "show route" toggle is on (map), so
@@ -92,25 +100,25 @@ export function useMPlanTimeline(planner: TripPlanner) {
   const upNext = useMemo(() => findUpNext(day, dayAssignments, now), [day, dayAssignments, now])
 
   // ── Weather chip — anchored to the day's first located stop, else its hotel ──
-  const weatherCoords = useMemo<{ lat: number; lng: number } | null>(() => {
+  const weatherAnchor = useMemo<{ lat: number; lng: number; name: string | null } | null>(() => {
     const located = dayAssignments.find(a => a.place?.lat != null && a.place?.lng != null)
-    if (located) return { lat: located.place!.lat!, lng: located.place!.lng! }
+    if (located) return { lat: located.place!.lat!, lng: located.place!.lng!, name: located.place!.name ?? null }
     const hotel = day ? getDayBookendHotels(day, days, tripAccommodations).morning : undefined
     if (hotel && hotel.place_lat != null && hotel.place_lng != null) {
-      return { lat: hotel.place_lat, lng: hotel.place_lng }
+      return { lat: hotel.place_lat, lng: hotel.place_lng, name: hotel.place_name ?? null }
     }
     return null
   }, [day, dayAssignments, days, tripAccommodations])
 
   const [weather, setWeather] = useState<WeatherResult | null>(null)
   useEffect(() => {
-    if (!day?.date || !weatherCoords) { setWeather(null); return }
+    if (!day?.date || !weatherAnchor) { setWeather(null); return }
     let cancelled = false
-    weatherApi.get(weatherCoords.lat, weatherCoords.lng, day.date.slice(0, 10))
+    weatherApi.get(weatherAnchor.lat, weatherAnchor.lng, day.date.slice(0, 10), language)
       .then(data => { if (!cancelled) setWeather(data.error ? null : data) })
       .catch(() => { if (!cancelled) setWeather(null) })
     return () => { cancelled = true }
-  }, [day?.date, weatherCoords])
+  }, [day?.date, weatherAnchor, language])
 
   // ── Expanded auto-transit rows ──
   const [openTransitKeys, setOpenTransitKeys] = useState<Set<string>>(new Set())
@@ -295,7 +303,7 @@ export function useMPlanTimeline(planner: TripPlanner) {
     if (!day) return
     const prevIds = dayAssignments.map(a => a.id)
     const result = optimizeDayOrder(
-      day, days, dayAssignments, tripAccommodations, settings.optimize_from_accommodation !== false,
+      day, days, dayAssignments, tripAccommodations, settings.optimize_from_accommodation !== false, dayHasCarrier,
     )
     if (!result) { toast.info(t('dayplan.toast.needTwoPlaces')); return }
     try {
@@ -308,7 +316,7 @@ export function useMPlanTimeline(planner: TripPlanner) {
     } catch (err: unknown) {
       toast.error(err instanceof Error ? err.message : t('trip.toast.reorderError'))
     }
-  }, [day, dayAssignments, days, tripAccommodations, settings, tripActions, tripId, pushUndo, updateRouteForDay, toast, t])
+  }, [day, dayAssignments, days, tripAccommodations, settings, dayHasCarrier, tripActions, tripId, pushUndo, updateRouteForDay, toast, t])
 
   const exportGoogleMaps = useCallback(() => {
     if (!day) return
@@ -316,18 +324,19 @@ export function useMPlanTimeline(planner: TripPlanner) {
     // drawn route does — only when the leg is real (#1372, #1465).
     const url = dayGoogleMapsUrl(
       day, days, dayAssignments, tripAccommodations, settings.optimize_from_accommodation !== false,
+      dayHasCarrier,
     )
     if (url) window.open(url, '_blank', 'noopener,noreferrer')
-  }, [day, dayAssignments, days, tripAccommodations, settings])
+  }, [day, dayAssignments, days, tripAccommodations, settings, dayHasCarrier])
 
   const exportCoMaps = useCallback(() => {
     if (!day) return
     const url = dayCoMapsUrl(
       day, days, dayAssignments, tripAccommodations, settings.optimize_from_accommodation !== false,
-      day.default_transport_mode ?? routeProfile,
+      day.default_transport_mode ?? routeProfile, dayHasCarrier,
     )
     if (url) window.open(url, '_blank', 'noopener,noreferrer')
-  }, [day, dayAssignments, days, tripAccommodations, settings, routeProfile])
+  }, [day, dayAssignments, days, tripAccommodations, settings, routeProfile, dayHasCarrier])
 
   const renameDay = useCallback((title: string) => {
     if (!day) return
@@ -368,15 +377,39 @@ export function useMPlanTimeline(planner: TripPlanner) {
     })
   }, [day, tripId, toast, t, tripActions])
 
+  // ── Public transit for one leg (#2398) ──
+  // The entry the desktop connector menu carries: the automated search, seeded with
+  // the leg's two ends and the time the stop it leaves is planned for. It needs the
+  // trip's dates, as on the desktop and as the day sheet's own transit button does.
+  const tripHasDates = Boolean(planner.trip?.start_date && planner.trip?.end_date)
+  const transitNames = useMemo(
+    () => buildTransitNameIndex(assignments, tripAccommodations, reservations),
+    [assignments, tripAccommodations, reservations],
+  )
+  const transitLegFor = useCallback((seg: RouteSegment): TransitLeg | null => {
+    if (!day || !tripHasDates) return null
+    return buildTransitLeg(seg, day.id, transitNames, assignments, reservations)
+  }, [day, tripHasDates, transitNames, assignments, reservations])
+
+  const planTransitLeg = useCallback((leg: TransitLeg) => {
+    if (!day) return
+    planner.setTransportModalDayId(day.id)
+    planner.setEditingTransport(null)
+    planner.setTransitPrefill(leg)
+    planner.setTransportModalAutomated(true)
+    planner.setShowTransportModal(true)
+  }, [planner, day])
+
   return {
     day, rows, hotelLegs, merged, hotelChips, weather, weatherTemp, upNext,
+    weatherPlaceName: weatherAnchor?.name ?? null,
     language, timeFormat: settings.time_format,
     openTransitKeys, toggleTransit,
     moveRow, removeAssignment, editAssignment, editTransport, openTransitJourney,
     moveRowTo,
     addPlace, addBooking, addTransport,
     optimize, exportGoogleMaps, exportCoMaps, renameDay, fullPlaceOf,
-    routeModeOptions, setLegMode,
+    routeModeOptions, setLegMode, transitLegFor, planTransitLeg,
   }
 }
 

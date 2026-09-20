@@ -143,7 +143,7 @@ export class JourneyMcp {
 
   @Tool({
     name: 'get_journey_stats',
-    description: 'What a journey adds up to: distance travelled in metres, calendar days spanned, countries in visit order, the furthest point reached, and entry, photo and place counts. Prefer this over get_journey whenever the question is about totals, since the stats get_journey carries are three counts and nothing else.',
+    description: 'What a journey adds up to: distance travelled in metres, calendar days spanned, countries in visit order, the furthest point reached, and entry, photo and place counts. Stops the traveller switched off with update_journey_entry count towards none of those and are listed under excluded instead. Prefer this over get_journey whenever the question is about totals, since the stats get_journey carries are three counts and nothing else.',
     inputSchema: {
       journeyId: z.number().int().positive(),
       include_route: z.boolean().optional().describe('Also return the route itself, up to 400 stops with coordinates. Off by default: the totals and the country list do not need it.'),
@@ -247,19 +247,42 @@ export class JourneyMcp {
       title: z.string().min(1).max(200).optional(),
       subtitle: z.string().max(300).optional(),
       status: z.enum(['draft', 'active', 'completed', 'archived']).optional(),
+      show_verdict: z.boolean().optional().describe('Whether entries in this journey offer a pros/cons list'),
+      show_mood: z.boolean().optional().describe('Whether entries in this journey offer a mood'),
+      show_weather: z.boolean().optional().describe('Whether entries in this journey offer a weather note'),
     },
     annotations: TOOL_ANNOTATIONS_WRITE,
     when: journeyAddonOn,
     access: { group: 'journey', mode: 'write' },
   })
   updateJourney(
-    { journeyId, title, subtitle, status }: { journeyId: number; title?: string; subtitle?: string; status?: string },
+    { journeyId, ...data }: {
+      journeyId: number; title?: string; subtitle?: string; status?: string;
+      show_verdict?: boolean; show_mood?: boolean; show_weather?: boolean;
+    },
     ctx: McpContext,
   ) {
     if (this.auth.isDemoUser(ctx.userId)) return demoDenied();
-    const journey = this.journey.updateJourney(journeyId, ctx.userId, { title, subtitle, status });
+    const journey = this.journey.updateJourney(journeyId, ctx.userId, data);
     if (!journey) return notFound('Journey not found or access denied.');
     return ok({ journey });
+  }
+
+  @Tool({
+    name: 'restore_journey_suggestions',
+    description: 'Bring back every trip-derived suggestion that was dismissed from this journey. Answers with how many came back.',
+    inputSchema: {
+      journeyId: z.number().int().positive(),
+    },
+    annotations: TOOL_ANNOTATIONS_WRITE,
+    when: journeyAddonOn,
+    access: { group: 'journey', mode: 'write' },
+  })
+  restoreJourneySuggestions({ journeyId }: { journeyId: number }, ctx: McpContext) {
+    if (this.auth.isDemoUser(ctx.userId)) return demoDenied();
+    const result = this.journey.restoreDismissedSuggestions(journeyId, ctx.userId);
+    if (!result) return notFound('Journey not found or access denied.');
+    return ok(result);
   }
 
   @Tool({
@@ -348,7 +371,7 @@ export class JourneyMcp {
 
   @Tool({
     name: 'update_journey_entry',
-    description: 'Update an existing journey entry: its text, date, place, coordinates, weather, tags, verdict or visibility. Fields left out keep their value; pass null to clear one. To move an entry within its day use reorder_journey_entries rather than setting sort_order here.',
+    description: 'Update an existing journey entry: its text, date, place, coordinates, weather, tags, verdict, visibility, or whether it counts as a stop. Fields left out keep their value; pass null to clear one. To move an entry within its day use reorder_journey_entries rather than setting sort_order here.',
     inputSchema: {
       entryId: z.number().int().positive(),
       title: z.string().max(300).nullable().optional(),
@@ -365,6 +388,8 @@ export class JourneyMcp {
       visibility: ENTRY_VISIBILITY.optional(),
       type: ENTRY_TYPE.optional().describe('Promote a trip-derived "skeleton" to a real "entry" once it has been written up'),
       sort_order: z.number().int().min(0).optional(),
+      stats_excluded: z.boolean().optional().describe('True leaves the entry in the journal but takes it off the journey route and out of its distance, countries and step count (see get_journey_stats); false puts it back. For the home airport, a stopover, the place the trip was planned from'),
+      dismissed: z.boolean().optional().describe('True waves a trip-derived suggestion away: it leaves the journey without being deleted, so the trip sync does not offer it again. restore_journey_suggestions brings every dismissed one back'),
     },
     annotations: TOOL_ANNOTATIONS_WRITE,
     when: journeyAddonOn,
@@ -376,7 +401,8 @@ export class JourneyMcp {
       entry_time?: string | null; location_name?: string | null; location_lat?: number | null;
       location_lng?: number | null; mood?: string | null; weather?: string | null;
       tags?: string[] | null; pros_cons?: { pros: string[]; cons: string[] } | null;
-      visibility?: EntryVisibility; type?: EntryType; sort_order?: number;
+      visibility?: EntryVisibility; type?: EntryType; sort_order?: number; stats_excluded?: boolean;
+      dismissed?: boolean;
     },
     ctx: McpContext,
   ) {

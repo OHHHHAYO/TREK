@@ -18,11 +18,16 @@ import {
 import { createElement, useEffect, useRef } from 'react';
 import { renderIconMarkup } from '../utils/iconMarkup';
 import { MapContainer, Marker, Polyline, TileLayer, Tooltip, useMap } from 'react-leaflet';
+import MarkerClusterGroup from 'react-leaflet-cluster';
+// MapView brings these sheets for the planner, and this page never mounts it.
+import 'leaflet.markercluster/dist/MarkerCluster.css';
+import 'leaflet.markercluster/dist/MarkerCluster.Default.css';
+import { CLUSTER_OPTIONS, createClusterIcon } from '../components/Map/markerCluster';
 import { getCategoryIcon } from '../components/shared/categoryIcons';
+import PublicLanguagePicker from '../components/shared/PublicLanguagePicker';
 import { OFM_POSITRON, DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM, MAP_MAX_ZOOM, attributionForTile } from '../constants/mapDefaults';
 import VectorBasemap from '../components/Map/VectorBasemap';
-import { SUPPORTED_LANGUAGES, useTranslation } from '../i18n';
-import { useSettingsStore } from '../store/settingsStore';
+import { useTranslation } from '../i18n';
 import { avatarSrc } from '../utils/avatarSrc';
 import { safeHexColor } from '../utils/safeColor';
 import { getMergedItems, getTransportForDay, hidesOnMiddleDay } from '../utils/dayMerge';
@@ -32,6 +37,8 @@ import { splitReservationDateTime } from '../utils/formatters';
 import { computeMapViewport, TILE_SIZE_RASTER } from '../utils/mapViewport';
 import { resolveBasemap } from '../utils/tileUrl';
 import { useSharedTrip } from './sharedTrip/useSharedTrip';
+import { SharedPlaceDetails } from './sharedTrip/SharedPlaceDetails';
+import { SharedBookingDetails } from './sharedTrip/SharedBookingDetails';
 
 const TRANSPORT_ICONS = { flight: Plane, train: Train, bus: Bus, car: Car, cruise: Ship };
 
@@ -203,6 +210,9 @@ export default function SharedTripPage() {
           padding: '32px 20px 28px',
           textAlign: 'center',
           position: 'relative',
+          // The decoration circles bleed past this box on purpose; without the clip
+          // they widened the page by 60px on a phone (#2345).
+          overflow: 'hidden',
         }}
       >
         {/* Cover image background */}
@@ -335,70 +345,7 @@ export default function SharedTripPage() {
           {t('shared.readOnly')}
         </div>
 
-        {/* Language picker - top right */}
-        <div style={{ position: 'absolute', top: 12, right: 12, zIndex: 10 }}>
-          <button type="button"
-            onClick={() => setShowLangPicker((v) => !v)}
-            className="bg-[rgba(255,255,255,0.1)] text-[rgba(255,255,255,0.7)]"
-            style={{
-              padding: '5px 12px',
-              borderRadius: 20,
-              border: '1px solid rgba(255,255,255,0.15)',
-              backdropFilter: 'blur(8px)',
-              fontSize: 'calc(11px * var(--fs-scale-caption, 1))',
-              fontWeight: 500,
-              cursor: 'pointer',
-              fontFamily: 'inherit',
-            }}
-          >
-            {SUPPORTED_LANGUAGES.find((l) => l.value === (locale?.split('-')[0] || 'en'))?.label || 'Language'}
-          </button>
-          {showLangPicker && (
-            <div
-              className="bg-white"
-              style={{
-                position: 'absolute',
-                top: '100%',
-                right: 0,
-                marginTop: 6,
-                borderRadius: 10,
-                boxShadow: '0 4px 16px rgba(0,0,0,0.2)',
-                padding: 4,
-                zIndex: 50,
-                minWidth: 150,
-              }}
-            >
-              {SUPPORTED_LANGUAGES.map((lang) => (
-                <button
-                  type="button"
-                  key={lang.value}
-                  onClick={() => {
-                    // Set language locally without API call (shared page has no auth)
-                    useSettingsStore.setState((s) => ({ settings: { ...s.settings, language: lang.value } }));
-                    setShowLangPicker(false);
-                  }}
-                  className="text-[#374151]"
-                  style={{
-                    display: 'block',
-                    width: '100%',
-                    padding: '6px 12px',
-                    border: 'none',
-                    background: 'none',
-                    textAlign: 'left',
-                    cursor: 'pointer',
-                    fontSize: 'calc(12px * var(--fs-scale-body, 1))',
-                    borderRadius: 6,
-                    fontFamily: 'inherit',
-                  }}
-                  onMouseEnter={(e) => (e.currentTarget.style.background = '#f3f4f6')}
-                  onMouseLeave={(e) => (e.currentTarget.style.background = 'none')}
-                >
-                  {lang.label}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <PublicLanguagePicker locale={locale} open={showLangPicker} onOpenChange={setShowLangPicker} />
       </div>
 
       <div style={{ maxWidth: 900, margin: '0 auto', padding: '20px 16px' }}>
@@ -515,18 +462,25 @@ export default function SharedTripPage() {
                     interactive={false}
                   />
                 )}
-                {mapPlaces.map((p: any) => (
-                  <Marker key={p.id} position={[p.lat, p.lng]} icon={createMarkerIcon(p, dayOrderMap[p.id] ?? null)}>
-                    <Tooltip>{p.name}</Tooltip>
-                  </Marker>
-                ))}
+                {/* Clustered like the planner's map, so nearby stops stay tappable (#2343). */}
+                <MarkerClusterGroup {...CLUSTER_OPTIONS} iconCreateFunction={createClusterIcon}>
+                  {mapPlaces.map((p: any) => (
+                    <Marker key={p.id} position={[p.lat, p.lng]} icon={createMarkerIcon(p, dayOrderMap[p.id] ?? null)}>
+                      <Tooltip>{p.name}</Tooltip>
+                    </Marker>
+                  ))}
+                </MarkerClusterGroup>
               </MapContainer>
             </div>
 
             {/* Day Plan */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
               {sortedDays.map((day: any, di: number) => {
-                const da = assignments[String(day.id)] || [];
+                // Without the booked nights: the day already shows each of them as its
+                // own chip, and the stop a booking writes for the drive would be that
+                // same hotel a second time. There is no road trip view on a shared link,
+                // so the stop has nothing else to do here.
+                const da = (assignments[String(day.id)] || []).filter((a: any) => a.accommodation_id == null);
                 // A share can still carry an assignment for a deleted place. The timeline
                 // skips those rows, so the header must not count them either.
                 const dayPlaceCount = da.filter((a: any) => a.place).length;
@@ -801,7 +755,7 @@ export default function SharedTripPage() {
                               key={`p-${item.data.id}`}
                               style={{
                                 display: 'flex',
-                                alignItems: 'center',
+                                alignItems: 'flex-start',
                                 gap: 10,
                                 padding: '6px 8px',
                                 borderRadius: 6,
@@ -836,19 +790,7 @@ export default function SharedTripPage() {
                                 >
                                   {place.name}
                                 </div>
-                                {(place.address || place.description) && (
-                                  <div
-                                    className="text-[#9ca3af]"
-                                    style={{
-                                      fontSize: 'calc(10px * var(--fs-scale-caption, 1))',
-                                      overflow: 'hidden',
-                                      textOverflow: 'ellipsis',
-                                      whiteSpace: 'nowrap',
-                                    }}
-                                  >
-                                    {place.address || place.description}
-                                  </div>
-                                )}
+                                <SharedPlaceDetails place={place} assignmentNotes={item.data.notes} />
                               </div>
                               {place.place_time && (
                                 <span
@@ -897,7 +839,7 @@ export default function SharedTripPage() {
                 <div
                   key={r.id}
                   className="border border-edge-faint bg-surface-card"
-                  style={{ borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'center', gap: 12 }}
+                  style={{ borderRadius: 10, padding: '12px 16px', display: 'flex', alignItems: 'flex-start', gap: 12 }}
                 >
                   <div
                     className="bg-[#f3f4f6]"
@@ -963,6 +905,7 @@ export default function SharedTripPage() {
                               </span>
                             )}
                     </div>
+                    <SharedBookingDetails notes={r.notes} url={r.url} />
                   </div>
                   <span
                     className={

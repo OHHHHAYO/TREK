@@ -24,6 +24,33 @@ interface SettingsState {
 export const hasStoredLanguage = (): boolean =>
   typeof localStorage !== 'undefined' && !!localStorage.getItem('app_language')
 
+const SERVER_LANGUAGE_KEY = 'app_language_server'
+
+// An account that never picked a language sends no language key at all
+// (getUserSettings returns only what was set), so a mirror left over from
+// whoever used this browser before has to go rather than survive the load.
+function rememberServerLanguage(settings: Partial<Settings>): void {
+  try {
+    const language = settings.language
+    if (language && SUPPORTED_LANGUAGE_CODES.includes(language)) {
+      localStorage.setItem(SERVER_LANGUAGE_KEY, language)
+    } else {
+      localStorage.removeItem(SERVER_LANGUAGE_KEY)
+    }
+  } catch {
+    // Private mode: the session still has the value in the store.
+  }
+}
+
+/** On logout, so the next account on this browser starts in its own language. */
+export function forgetServerLanguage(): void {
+  try {
+    localStorage.removeItem(SERVER_LANGUAGE_KEY)
+  } catch {
+    // Nothing to clean up if storage is unavailable.
+  }
+}
+
 // The effective client-side defaults for a fresh instance. The server sends no value for
 // a setting an admin hasn't defaulted (see settingsService.getAdminUserDefaults), so these
 // are what a brand-new user actually sees. Keep them internally consistent — one
@@ -32,10 +59,28 @@ export const hasStoredLanguage = (): boolean =>
 // can't drift apart again.
 export const DEFAULT_SETTINGS: Settings = {
   map_tile_url: '',
+  // Empty = the public routing hosts TREK ships with.
+  routing_base_url: '',
+  // Empty = the public Valhalla, unless routing_base_url names an own router, in which
+  // case no second engine is asked at all. See valhallaBase().
+  valhalla_base_url: '',
+  // Empty = not said, and then a stop of either kind fills up. See refuelsRange().
+  roadtrip_vehicle: '',
+  // Off = the rail routes a day at a time, the way the day plan stores it, and the road
+  // between one day's last stop and the next day's first is simply not drawn. On = the
+  // trip is one continuous drive and every one of those gaps is routed too.
+  roadtrip_connect_days: false,
+  // Off = one blue line for the whole trip. On = a colour per day, so a route drawn end
+  // to end can still be read as days.
+  roadtrip_day_colors: false,
   dark_mode: false,
   // Empty = no personal display currency, so Costs falls back to the trip's own.
   default_currency: '',
-  language: localStorage.getItem('app_language') || 'en',
+  // Explicit in-app choice first, then the mirror of the account's server-side
+  // language (written by loadSettings below), then English. Without the mirror
+  // an offline cold start boots in English: the account's language lives on the
+  // server, and the fetch that would apply it cannot happen.
+  language: localStorage.getItem('app_language') || localStorage.getItem(SERVER_LANGUAGE_KEY) || 'en',
   temperature_unit: 'celsius',
   distance_unit: 'metric',
   time_format: '24h',
@@ -99,6 +144,14 @@ export const useSettingsStore = create<SettingsState>((set, get) => ({
         // The startup redirect runs before this ever resolves, so keep a mirror
         // it can read synchronously on the next launch.
         rememberStartDestination(incoming)
+        // Same trick for the language: mirror the account's value so the next
+        // launch — including an offline one, where this fetch fails — boots in
+        // it instead of English (#1618 fixed the same stranding for currency
+        // and units, but the language never made it into that fix). Its own
+        // key rather than 'app_language': that one means an explicit in-app
+        // choice, and the login page's detection chain must keep running for
+        // users who never made one.
+        rememberServerLanguage(incoming)
       } catch (err: unknown) {
         // Leave isLoaded false so a transient failure — offline at launch, or a
         // (docker) server cold-start racing the first request — is retried on

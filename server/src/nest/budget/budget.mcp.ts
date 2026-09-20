@@ -20,16 +20,20 @@ import { AddonsService } from '../addons/addons.service';
 /** Legacy registrar gate: the whole budget surface rides the budget addon. */
 const budgetAddonOn = addonGate(ADDON_IDS.BUDGET);
 
-/** Reusable Zod shape for the per-payer amounts on a budget item. */
+/**
+ * Reusable Zod shape for the per-payer amounts on a budget item. Amounts are
+ * signed like the REST contract's (#2176): a negative payer is the recipient
+ * of a refund recorded as a negative expense.
+ */
 const payersSchema = z.array(z.object({
   user_id: z.number().int().positive(),
-  amount: z.number().nonnegative(),
+  amount: z.number(),
 })).describe('Who actually paid, and how much each paid, in the expense currency. Ask the user; do not guess.');
 
-/** Reusable Zod shape for an unequal split: what each participant owes. */
+/** Reusable Zod shape for an unequal split: what each participant owes. Signed, like the REST contract (#2176). */
 const splitMembersSchema = z.array(z.object({
   user_id: z.number().int().positive(),
-  amount: z.number().nonnegative(),
+  amount: z.number(),
 })).describe('Unequal split: what each participant owes, in the expense currency. The amounts must add up to the expense total. Ask the user; do not guess.');
 
 function parseId(value: string | string[]): number | null {
@@ -116,9 +120,10 @@ export class BudgetMcp {
     // Once payers are sent at all, the write path derives the total from them and
     // an empty list therefore means zero, not "no opinion". Reading total_price
     // here instead would certify a split against a figure the row never receives.
+    // Negative payers count with their sign (#2176) — the write path stores them.
     if (payers !== undefined) {
       const roster = this.db.rosterUserIds(tripId);
-      return sumCents(payers.filter(p => p.amount > 0 && roster.has(p.user_id)).map(p => p.amount));
+      return sumCents(payers.filter(p => p.amount !== 0 && roster.has(p.user_id)).map(p => p.amount));
     }
     if (total_price !== undefined) return toCents(total_price);
     return fallbackCents;
@@ -151,7 +156,7 @@ export class BudgetMcp {
     // certified here would not be the split stored. Refuse rather than let the
     // difference surface on the balances screen.
     if (payers) {
-      const payerStrangers = payers.filter(p => p.amount > 0 && !roster.has(p.user_id)).map(p => p.user_id);
+      const payerStrangers = payers.filter(p => p.amount !== 0 && !roster.has(p.user_id)).map(p => p.user_id);
       if (payerStrangers.length > 0) {
         return `payers contains user IDs that are not on this trip: ${payerStrangers.join(', ')}. Resolve them with list_trip_members.`;
       }
@@ -177,7 +182,7 @@ export class BudgetMcp {
       tripId: z.number().int().positive(),
       name: z.string().min(1).max(200),
       category: z.string().max(100).optional().describe('Budget category (e.g. Accommodation, Food, Transport)'),
-      total_price: z.number().nonnegative(),
+      total_price: z.number().describe('Signed: a negative total records a refund/partial reimbursement (#2176)'),
       currency: z.string().max(10).nullable().optional().describe('ISO currency code (e.g. "EUR"); defaults to the trip currency'),
       member_ids: z.array(z.number().int().positive()).optional().describe('Trip member user IDs splitting this expense equally. Omit to split across all trip members (owner + members); pass [] for no split.'),
       members: splitMembersSchema.optional().describe('Uneven split: what each participant owes, in the expense currency. The amounts must add up to the expense total. Use this instead of member_ids, never alongside it.'),
@@ -250,7 +255,7 @@ export class BudgetMcp {
       itemId: z.number().int().positive(),
       name: z.string().min(1).max(200).optional(),
       category: z.string().max(100).optional(),
-      total_price: z.number().nonnegative().optional(),
+      total_price: z.number().optional(),
       currency: z.string().max(10).nullable().optional().describe('ISO currency code the expense is in (e.g. "USD"); null puts it back in the trip currency. Changing it re-freezes the FX rate at today\'s rate.'),
       member_ids: z.array(z.number().int().positive()).optional().describe('Trip member user IDs splitting this expense equally; replaces the current split. Omit to leave unchanged, pass [] for no split.'),
       members: splitMembersSchema.optional().describe('Uneven split: what each participant owes, in the expense currency; replaces the current split. The amounts must add up to the expense total. Use this instead of member_ids, never alongside it.'),
@@ -302,7 +307,7 @@ export class BudgetMcp {
       tripId: z.number().int().positive(),
       name: z.string().min(1).max(200),
       category: z.string().max(100).optional().describe('Budget category (e.g. Accommodation, Food, Transport)'),
-      total_price: z.number().nonnegative(),
+      total_price: z.number().describe('Signed: a negative total records a refund/partial reimbursement (#2176)'),
       note: z.string().max(500).optional(),
       userIds: z.array(z.number().int().positive()).optional().describe('User IDs splitting this item; omit to split across all trip members, or pass an empty array for no split'),
       place_id: z.number().int().positive().optional().describe('Place on this trip the expense belongs to (the museum ticket for that museum), linking it in the planner'),
@@ -385,7 +390,7 @@ export class BudgetMcp {
 
   @Tool({
     name: 'get_settlement_summary',
-    description: "See each member's net balance and the suggested payments to settle shared expenses. Amounts are in the trip's base currency. Call this before recording a settlement so you know who should pay whom and how much.",
+    description: "See each member's net balance, the suggested payments to settle shared expenses, and what the trip finally costs each member once every reimbursement is accounted for (`finalBudgets`, each figure with the rows it is made of under `sources`). Amounts are in the trip's base currency. Call this before recording a settlement so you know who should pay whom and how much.",
     inputSchema: {
       tripId: z.number().int().positive(),
       base: z.string().max(10).optional().describe('ISO currency code to compute balances in; defaults to the trip currency'),
@@ -428,13 +433,14 @@ export class BudgetMcp {
       to_user_id: z.number().int().positive().describe('User ID of the member who received the payment'),
       amount: z.number().positive().describe('Amount paid, in `currency`'),
       currency: z.string().max(10).nullable().optional().describe("ISO currency code the payment was made in (e.g. \"USD\"); defaults to the trip currency. Its FX rate is frozen now, so the transfer keeps cancelling its expense when live rates drift."),
+      settled_at: z.string().max(40).nullable().optional().describe('Day the payment actually happened, YYYY-MM-DD. Omitted means no day is stored and the ledger files the payment under the day it was recorded.'),
     },
     annotations: TOOL_ANNOTATIONS_NON_IDEMPOTENT,
     when: budgetAddonOn,
     access: { group: 'budget', mode: 'write' },
   })
   async createSettlement(
-    { tripId, from_user_id, to_user_id, amount, currency }: { tripId: number; from_user_id: number; to_user_id: number; amount: number; currency?: string | null },
+    { tripId, from_user_id, to_user_id, amount, currency, settled_at }: { tripId: number; from_user_id: number; to_user_id: number; amount: number; currency?: string | null; settled_at?: string | null },
     ctx: McpContext,
   ) {
     if (this.isDemoUser(ctx.userId)) return demoDenied();
@@ -442,7 +448,7 @@ export class BudgetMcp {
     if (!this.guards.hasTripPermission('budget_edit', tripId, ctx.userId)) return permissionDenied();
     // Freeze-then-write composite, same as the REST path: the rate for the display
     // currency is frozen at entry time (#1445).
-    const settlement = await this.budget.createSettlement(tripId, { from_user_id, to_user_id, amount, currency }, ctx.userId);
+    const settlement = await this.budget.createSettlement(tripId, { from_user_id, to_user_id, amount, currency, settled_at }, ctx.userId);
     if (!settlement) return errorResult('Settlement not found.');
     this.guards.safeBroadcast(tripId, 'budget:settlement-created', { settlement });
     return ok({ settlement });
@@ -458,13 +464,14 @@ export class BudgetMcp {
       to_user_id: z.number().int().positive().describe('User ID of the member who received the payment'),
       amount: z.number().positive().describe('Amount paid, in `currency`'),
       currency: z.string().max(10).nullable().optional().describe('ISO currency code the payment was made in (e.g. "USD"); null puts it back in the trip currency. Omit to leave it as recorded, which also keeps the rate frozen at settle time.'),
+      settled_at: z.string().max(40).nullable().optional().describe('Date the payment actually happened, YYYY-MM-DD. Omit to leave it as recorded.'),
     },
     annotations: TOOL_ANNOTATIONS_WRITE,
     when: budgetAddonOn,
     access: { group: 'budget', mode: 'write' },
   })
   async updateSettlement(
-    { tripId, settlementId, from_user_id, to_user_id, amount, currency }: { tripId: number; settlementId: number; from_user_id: number; to_user_id: number; amount: number; currency?: string | null },
+    { tripId, settlementId, from_user_id, to_user_id, amount, currency, settled_at }: { tripId: number; settlementId: number; from_user_id: number; to_user_id: number; amount: number; currency?: string | null; settled_at?: string | null },
     ctx: McpContext,
   ) {
     if (this.isDemoUser(ctx.userId)) return demoDenied();
@@ -472,7 +479,7 @@ export class BudgetMcp {
     if (!this.guards.hasTripPermission('budget_edit', tripId, ctx.userId)) return permissionDenied();
     // Freeze-then-write composite, same as the REST path: an edit that leaves the
     // currency alone keeps the rate frozen at settle time.
-    const settlement = await this.budget.updateSettlement(settlementId, tripId, { from_user_id, to_user_id, amount, currency });
+    const settlement = await this.budget.updateSettlement(settlementId, tripId, { from_user_id, to_user_id, amount, currency, settled_at });
     if (!settlement) return errorResult('Settlement not found.');
     this.guards.safeBroadcast(tripId, 'budget:settlement-updated', { settlement });
     return ok({ settlement });

@@ -5,6 +5,7 @@ import { AdminService } from './admin.service';
 import { TokenService } from '../tokens/token.service';
 import { RegistrationInvitesService } from '../auth/registration-invites.service';
 import { OauthService } from '../oauth/oauth.service';
+import { KitineraryExtractorService } from '../booking-import/kitinerary-extractor.service';
 import {
   AdminUserCreateDto,
   AdminUserUpdateDto,
@@ -18,6 +19,7 @@ import {
   AdminNotificationPreferencesDto,
   AdminDefaultUserSettingsDto,
   AdminTestNotificationDto,
+  AdminTransitProviderDto,
 } from './admin.dto';
 import { PluginRuntimeService } from '../plugins/plugin-runtime.service';
 import { AddonsService } from '../addons/addons.service';
@@ -68,6 +70,7 @@ export class AdminController {
     private readonly tokens: TokenService,
     private readonly invites: RegistrationInvitesService,
     private readonly oauth: OauthService,
+    private readonly kitinerary: KitineraryExtractorService,
   ) {}
 
   // ── Users ──
@@ -149,6 +152,15 @@ export class AdminController {
   @Get('version-check')
   async versionCheck() { return this.admin.checkVersion(); }
 
+  /**
+   * Versions of the bundled tools an operator cannot see from the UI. Today the
+   * only one is the KItinerary extractor, whose age decides which booking
+   * providers parse at all — and a stale one is indistinguishable from an
+   * unsupported provider without this (#2261).
+   */
+  @Get('system-info')
+  systemInfo() { return { kitinerary: this.kitinerary.describe() }; }
+
   // ── Invites ──
   @Get('invites')
   listInvites() { return { invites: this.invites.listInvites() }; }
@@ -221,6 +233,16 @@ export class AdminController {
     return result;
   }
 
+  @Get('place-shadow')
+  getPlaceShadow() { return this.addons.getPlaceShadow(); }
+
+  @Put('place-shadow')
+  updatePlaceShadow(@CurrentUser() user: User, @Body() body: AdminFeatureToggleDto, @Req() req: Request) {
+    const result = this.addons.updatePlaceShadow(body.enabled);
+    this.audit.writeAudit({ userId: user.id, action: 'admin.place_shadow', ip: getClientIp(req), details: { enabled: result.enabled } });
+    return result;
+  }
+
   @Get('places-enrich')
   getPlacesEnrich() { return this.addons.getPlacesEnrich(); }
 
@@ -242,6 +264,18 @@ export class AdminController {
     if (changed) this.admin.invalidateMcpSessions();
     this.audit.writeAudit({ userId: user.id, action: 'admin.collab_features', ip: getClientIp(req), details: features });
     return features;
+  }
+
+  // Which backend answers /api/transit (#1699). Transitous unless an admin
+  // says otherwise, and still Transitous if Google is picked without a key.
+  @Get('transit-provider')
+  getTransitProvider(@CurrentUser() user: User) { return this.addons.getTransitProvider(user.id); }
+
+  @Put('transit-provider')
+  updateTransitProvider(@CurrentUser() user: User, @Body() body: AdminTransitProviderDto, @Req() req: Request) {
+    const result = this.addons.updateTransitProvider(body.provider, user.id);
+    this.audit.writeAudit({ userId: user.id, action: 'admin.transit_provider', ip: getClientIp(req), details: { provider: result.provider } });
+    return result;
   }
 
   // ── Addons ──
