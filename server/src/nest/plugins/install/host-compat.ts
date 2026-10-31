@@ -1,5 +1,6 @@
+import { readEnv, runningVersion } from '../../../app-config';
+
 import semver from 'semver';
-import { readEnv } from '../../../app-config';
 
 /**
  * Host-version compatibility for plugins (#plugins). A manifest declares the TREK
@@ -12,7 +13,7 @@ import { readEnv } from '../../../app-config';
 
 /** The running TREK version (same source as the rest of the app). */
 export function hostVersion(): string {
-  return readEnv().app.appVersion || (require('../../../../package.json') as { version: string }).version;
+  return runningVersion();
 }
 
 let warnedUnparseable = false;
@@ -36,7 +37,7 @@ let warnedUnparseable = false;
  * rc of 4.0 IS 4.0.
  *
  * A null host NEVER blocks anything (see {@link hostSatisfies}). This is deliberate:
- * APP_VERSION is a Docker build ARG that defaults to the literal string `dev`, and an
+ * a source install can set APP_VERSION to anything (`dev`, a branch name), and an
  * unversioned build must stay fully usable. The warning exists so that a MISCONFIGURED
  * APP_VERSION in production — which silently switches this whole gate off — is visible
  * in the logs instead of being discovered when an incompatible plugin misbehaves.
@@ -46,7 +47,9 @@ export function normalizedHost(): string | null {
   const coerced = semver.coerce(raw)?.version ?? null;
   if (!coerced && !warnedUnparseable) {
     warnedUnparseable = true;
-    console.warn(`[plugins] APP_VERSION "${raw}" is not a semver version — plugin TREK-compatibility checks are disabled`);
+    console.warn(
+      `[plugins] APP_VERSION "${raw}" is not a semver version — plugin TREK-compatibility checks are disabled`,
+    );
   }
   return coerced;
 }
@@ -123,18 +126,98 @@ export interface TrekRangeBypass {
   /** The plugin's declared range, or null when it declared none at all. */
   trekRange: string | null;
   hostVersion: string;
+  /**
+   * True when an admin accepted this one plugin outside its range, false when
+   * TREK_PLUGINS_IGNORE_TREK_RANGE lets every plugin through.
+   */
+  acceptedByAdmin: boolean;
+}
+
+/** An admin's consent to run one plugin outside its range, as the plugins row keeps it. */
+interface TrekRangeAcceptance {
+  /** The plugin version that was installed when the admin accepted. */
+  acceptedVersion: string | null;
+  /** The TREK version it ran on then. */
+  acceptedHost: string | null;
 }
 
 /**
- * Non-null exactly when `range` would have been refused and only the bypass lets it
- * through: the marker that makes an install/activate response say "this worked, but
- * only because you told TREK to ignore the version check". Null for a normal install
- * (the range fits) and null when the bypass is off (the gate refuses instead).
+ * Whether an admin's consent still covers the plugin as it is installed now: the
+ * same plugin version, on the same TREK major. An update of the plugin, or a TREK
+ * major past the one the admin saw it run on, asks again.
  */
-export function bypassedRange(range: string | null | undefined): TrekRangeBypass | null {
+export function acceptanceHolds(
+  pluginVersion: string | null | undefined,
+  a: TrekRangeAcceptance | null | undefined,
+): boolean {
+  if (!a?.acceptedVersion || !a.acceptedHost || !pluginVersion) return false;
+  if (a.acceptedVersion !== pluginVersion) return false;
+  const accepted = semver.coerce(a.acceptedHost);
+  const host = normalizedHost();
+  if (!accepted || host === null) return false;
+  return semver.major(accepted) === semver.major(host);
+}
+
+/**
+ * Non-null exactly when `range` would have been refused and only a bypass lets it
+ * through: the marker that makes an install/activate response say "this worked, but
+ * only because you told TREK to run it anyway". `accepted` is this one plugin's
+ * consent from the admin; the environment switch covers every plugin. Null for a
+ * normal install (the range fits) and null when neither applies (the gate refuses).
+ */
+export function bypassedRange(range: string | null | undefined, accepted = false): TrekRangeBypass | null {
   if (hostSatisfies(range)) return null;
-  if (!trekRangeBypassed()) return null;
-  return { trekRange: range ?? null, hostVersion: hostVersion() };
+  const everyPlugin = trekRangeBypassed();
+  if (!everyPlugin && !accepted) return null;
+  return { trekRange: range ?? null, hostVersion: hostVersion(), acceptedByAdmin: !everyPlugin };
+}
+
+/** What the activation gate reads off a plugin's row to decide whether it may run on this TREK. */
+interface TrekRangeRow {
+  trek_range: string | null;
+  version: string | null;
+  trek_range_accepted_version: string | null;
+  trek_range_accepted_host: string | null;
+}
+
+/** Why the activation gate refuses a plugin on this TREK, in the shape its error carries. */
+interface TrekRangeRefusal {
+  message: string;
+  code: 'TREK_VERSION_UNKNOWN' | 'TREK_VERSION_INCOMPATIBLE';
+  detail: { trekRange: string | null; hostVersion: string };
+}
+
+/**
+ * The TREK-version half of the activation gate: null when the plugin may run, else why
+ * not. An admin's consent (`acceptNow`, or one kept on the row for this version and TREK
+ * major) or TREK_PLUGINS_IGNORE_TREK_RANGE lets an outgrown plugin through, and every
+ * start of one says so in the log; the plugin list carries the same marker for the UI.
+ */
+export function trekRangeRefusal(id: string, row: TrekRangeRow, acceptNow = false): TrekRangeRefusal | null {
+  const accepted =
+    acceptNow ||
+    acceptanceHolds(row.version, {
+      acceptedVersion: row.trek_range_accepted_version,
+      acceptedHost: row.trek_range_accepted_host,
+    });
+  const bypass = bypassedRange(row.trek_range, accepted);
+  if (bypass) {
+    warnRangeBypass(id, bypass);
+    return null;
+  }
+  if (!row.trek_range) {
+    return {
+      message: `plugin ${id} does not declare which TREK versions it supports`,
+      code: 'TREK_VERSION_UNKNOWN',
+      detail: { trekRange: null, hostVersion: hostVersion() },
+    };
+  }
+  if (hostSatisfies(row.trek_range)) return null;
+  return {
+    message: `plugin ${id} requires TREK ${row.trek_range} — this is TREK ${hostVersion()}`,
+    code: 'TREK_VERSION_INCOMPATIBLE',
+    detail: { trekRange: row.trek_range, hostVersion: hostVersion() },
+  };
 }
 
 /**
@@ -144,7 +227,8 @@ export function bypassedRange(range: string | null | undefined): TrekRangeBypass
  */
 export function warnRangeBypass(id: string, b: TrekRangeBypass): void {
   const declared = b.trekRange ? `declares TREK ${b.trekRange}` : 'declares no TREK version range';
+  const because = b.acceptedByAdmin ? 'an admin chose to run it anyway' : 'TREK_PLUGINS_IGNORE_TREK_RANGE is set';
   console.warn(
-    `[plugins] ${id} ${declared} — this is TREK ${b.hostVersion}; continuing because TREK_PLUGINS_IGNORE_TREK_RANGE is set. The author has not verified it on this version: it may not work, and it could corrupt TREK data.`,
+    `[plugins] ${id} ${declared} — this is TREK ${b.hostVersion}; continuing because ${because}. The author has not verified it on this version: it may not work, and it could corrupt TREK data.`,
   );
 }

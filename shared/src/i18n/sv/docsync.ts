@@ -68,7 +68,8 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'Borttagen i TREK',
   'docsync.state.scope_drift': 'Flyttad ut ur mappen',
 
-  'docsync.conflict.resolve': "Lös {count}",
+  'docsync.conflict.resolve': 'Lös {count}',
+  'docsync.conflict.resolve.one': 'Lös {count}',
 
   'docsync.conflict.title': 'Båda kopiorna har ändrats',
   'docsync.conflict.keepTrek': 'Behåll TREK-versionen',
@@ -172,8 +173,15 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': 'Överföringen gick inte igenom.',
 
   'docsync.error.unknown_provider': 'Den här leverantören är inte tillgänglig på den här instansen.',
-  'docsync.error.provider_disabled': 'Pausad: en administratör har stängt av den här leverantören. Synkroniseringen fortsätter när den slås på igen.',
+  'docsync.error.provider_disabled':
+    'Pausad: en administratör har stängt av den här leverantören. Synkroniseringen fortsätter när den slås på igen.',
   'docsync.binding.reconnect': 'Anslut igen',
+  'docsync.connection.title': 'Anslutning',
+  'docsync.connection.hint': 'Adressen och inloggningen som TREK använder för den här lagringen.',
+  'docsync.connection.edit': 'Redigera anslutning',
+  'docsync.connection.remove': 'Ta bort anslutning',
+  'docsync.connection.confirmRemove':
+    'TREK glömmer adressen och inloggningen för den här lagringen, och all synkronisering av resan via den stoppas. Dokumenten finns kvar i TREK och i lagringen.',
 };
 
 export default docsync;

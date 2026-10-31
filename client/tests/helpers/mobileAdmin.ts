@@ -76,6 +76,8 @@ export function buildAdminHook(overrides: Record<string, unknown> = {}): AdminHo
     placesDetailsEnabled: false,
     setPlacesDetailsEnabledState: vi.fn(),
     placesEnrichEnabled: true,
+    placesGoogleOnly: false,
+    handleTogglePlacesGoogleOnly: vi.fn(),
     setPlacesEnrichEnabledState: vi.fn(),
     // Fail-open on the server, so the harness starts where an unset row lands.
     trekPlacesEnabled: true,
@@ -148,6 +150,8 @@ export function buildAdminHook(overrides: Record<string, unknown> = {}): AdminHo
     setAmapKey: vi.fn(),
     hasMapsKey: false,
     hasAmapKey: false,
+    // No key set by the environment unless a test says so (#1881).
+    keyInputProps: () => ({ disabled: false, placeholder: 'Enter key...' }),
     placesProvider: 'auto',
     savingPlacesProvider: false,
     showKeys: {},
@@ -180,11 +184,16 @@ export function buildAdminHook(overrides: Record<string, unknown> = {}): AdminHo
     handleCreateUser: vi.fn(),
     handleCreateInvite: vi.fn(),
     handleDeleteInvite: vi.fn(),
+    inviteToDelete: null,
+    setInviteToDelete: vi.fn(),
     copyInviteLink: vi.fn(),
     handleEditUser: vi.fn(),
     handleSaveUser: vi.fn(),
     handleDeleteUser: vi.fn(),
   };
 
-  return { ...base, ...overrides } as unknown as AdminHook;
+  // Derived like the hook does, so a test that only sets mapsKey keeps its Test button.
+  const merged = { ...base, ...overrides };
+  if (!('mapsKeyTestable' in overrides)) merged.mapsKeyTestable = !!merged.mapsKey;
+  return merged as unknown as AdminHook;
 }

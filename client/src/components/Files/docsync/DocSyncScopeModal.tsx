@@ -1,8 +1,9 @@
-import { useEffect, useMemo, useState } from 'react'
-import { FolderPlus, Loader2, Search } from 'lucide-react'
-import Modal from '../../shared/Modal'
+import { useId, useMemo, useState } from 'react'
+import { FolderPlus, KeyRound, Loader2, Search } from 'lucide-react'
+import { DialogHeader, DialogShell, DialogTile, NEUTRAL_TINT } from '../../shared/DialogShell'
 import { useTranslation } from '../../../i18n/TranslationContext'
-import type { DocSyncConnection, DocSyncScope, useDocSync } from './useDocSync'
+import type { DocSyncConnection, useDocSync } from './useDocSync'
+import { NEW_SCOPE, useScopePicker } from './useScopePicker'
 
 /**
  * Picking the container a trip lives in.
@@ -21,6 +22,7 @@ export default function DocSyncScopeModal({
   sync,
   onClose,
   onBound,
+  onEditConnection,
 }: {
   connection: DocSyncConnection
   providerName: string
@@ -29,30 +31,18 @@ export default function DocSyncScopeModal({
   sync: ReturnType<typeof useDocSync>
   onClose: () => void
   onBound: () => void
+  /** Back to the stored connection, to change the login or remove it before choosing a folder. */
+  onEditConnection?: () => void
 }) {
   const { t } = useTranslation()
-  const [scopes, setScopes] = useState<DocSyncScope[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
+  const labelId = useId()
   const [query, setQuery] = useState('')
-  const [newName, setNewName] = useState(suggestedName)
-  const [working, setWorking] = useState<string | null>(null)
-
-  // `loadScopes`, not `sync`: the hook hands back a fresh object on every
-  // render of the panel above, so depending on it re-listed the provider's
-  // folders each time anything up there changed. The callback itself is
-  // stable. Taken out of `sync` first, because calling it as `sync.loadScopes`
-  // inside the effect makes the whole object a dependency again.
-  const { loadScopes } = sync
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const res = await loadScopes(connection.id)
-      if (cancelled) return
-      setScopes(res.scopes)
-      setError(res.error ?? null)
-    })()
-    return () => { cancelled = true }
-  }, [connection.id, loadScopes])
+  const { scopes, error, name: newName, setName: setNewName, working, bind, createAndBind } = useScopePicker({
+    connectionId: connection.id,
+    suggestedName,
+    sync,
+    onBound,
+  })
 
   const shown = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -60,41 +50,35 @@ export default function DocSyncScopeModal({
     return scopes.filter(s => s.label.toLowerCase().includes(needle))
   }, [scopes, query])
 
-  const bind = async (scope: DocSyncScope) => {
-    setWorking(scope.scopeKey)
-    const ok = await sync.createLink({
-      connectionId: connection.id,
-      scopeKey: scope.scopeKey,
-      remoteRootId: scope.remoteRootId,
-      remoteRootPath: scope.remoteRootPath,
-      remoteLabel: scope.label,
-      direction: 'both',
-      deletePolicy: 'unlink',
-      conflictPolicy: 'manual',
-      syncEnabled: true,
-    })
-    setWorking(null)
-    if (ok) onBound()
-  }
-
-  const createAndBind = async () => {
-    const name = newName.trim()
-    if (!name) return
-    setWorking('__new__')
-    try {
-      // A refused create leaves nothing to bind; the hook has already put the
-      // reason where the dialog shows it.
-      const scope = await sync.createScope(connection.id, name)
-      if (scope) await bind(scope)
-    } finally {
-      setWorking(null)
-    }
-  }
-
   return (
-    <Modal isOpen onClose={onClose} size="md" title={t('docsync.scope.title', { provider: providerName })}>
+    <DialogShell
+      onClose={onClose}
+      labelledBy={labelId}
+      width="narrow"
+      header={(
+        <DialogHeader
+          tile={<DialogTile><FolderPlus size={20} strokeWidth={1.9} className="text-content-muted" /></DialogTile>}
+          tint={NEUTRAL_TINT}
+          labelId={labelId}
+          onClose={onClose}
+          title={t('docsync.scope.title', { provider: providerName })}
+        />
+      )}
+    >
       <div className="space-y-4">
-        <p className="text-caption text-content-muted">{t('docsync.scope.intro')}</p>
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-caption text-content-muted">{t('docsync.scope.intro')}</p>
+          {onEditConnection && (
+            <button
+              type="button"
+              onClick={onEditConnection}
+              className="flex shrink-0 items-center gap-1.5 rounded-lg border border-edge px-2.5 py-1 text-caption font-medium text-content-secondary transition-colors hover:bg-surface-hover"
+            >
+              <KeyRound size={13} />
+              {t('docsync.connection.edit')}
+            </button>
+          )}
+        </div>
 
         <div className="rounded-xl border border-edge bg-surface-secondary p-3">
           <span className="mb-2 block text-body font-medium text-content">{t('docsync.scope.createTitle')}</span>
@@ -112,7 +96,7 @@ export default function DocSyncScopeModal({
               disabled={!newName.trim() || working !== null}
               className="flex shrink-0 items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-body font-medium text-accent-text transition-opacity hover:opacity-90 disabled:opacity-50"
             >
-              {working === '__new__' ? <Loader2 size={14} className="animate-spin" /> : <FolderPlus size={14} />}
+              {working === NEW_SCOPE ? <Loader2 size={14} className="animate-spin" /> : <FolderPlus size={14} />}
               {t('docsync.scope.createAction')}
             </button>
           </div>
@@ -123,12 +107,12 @@ export default function DocSyncScopeModal({
             <span className="text-body font-medium text-content">{t('docsync.scope.pickTitle')}</span>
             {scopes && scopes.length > 6 && (
               <span className="relative">
-                <Search size={13} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-content-faint" />
+                <Search size={13} className="pointer-events-none absolute start-2.5 top-1/2 -translate-y-1/2 text-content-faint" />
                 <input
                   value={query}
                   onChange={e => setQuery(e.target.value)}
                   placeholder={t('docsync.scope.search')}
-                  className="w-44 rounded-lg border border-edge bg-surface-input py-1.5 pl-8 pr-2.5 text-caption text-content ring-accent focus:outline-none focus:ring-2"
+                  className="w-44 rounded-lg border border-edge bg-surface-input py-1.5 ps-8 pe-2.5 text-caption text-content ring-accent focus:outline-none focus:ring-2"
                 />
               </span>
             )}
@@ -160,7 +144,7 @@ export default function DocSyncScopeModal({
                     type="button"
                     onClick={() => void bind(s)}
                     disabled={working !== null}
-                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-left transition-colors hover:bg-surface-hover disabled:opacity-50"
+                    className="flex w-full items-center justify-between gap-3 px-3 py-2.5 text-start transition-colors hover:bg-surface-hover disabled:opacity-50"
                   >
                     <span className="min-w-0">
                       <span className="block truncate text-body text-content">{s.label}</span>
@@ -176,6 +160,6 @@ export default function DocSyncScopeModal({
           )}
         </div>
       </div>
-    </Modal>
+    </DialogShell>
   )
 }

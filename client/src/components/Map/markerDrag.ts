@@ -18,23 +18,39 @@
  * both end up as a real DOM node, which is all HTML5 drag needs.
  */
 
+/**
+ * Start dragging `placeId` towards the day plan, from any row or marker that holds a
+ * place (a tour is one too). Every source goes through here, so the day plan cannot
+ * tell them apart.
+ */
+export function startPlaceDrag(transfer: DataTransfer | null, placeId: number): void {
+  transfer?.setData('placeId', String(placeId))
+  if (transfer) transfer.effectAllowed = 'copy'
+  window.__dragData = { placeId: String(placeId) }
+}
+
+/** The drag `startPlaceDrag` began has ended, dropped or not. */
+export function endPlaceDrag(): void {
+  window.__dragData = null
+}
+
 /** Wire a marker element up as a drag source for `placeId`. */
 export function makeMarkerDraggable(el: HTMLElement, placeId: number): () => void {
   el.setAttribute('draggable', 'true')
 
   const onDragStart = (e: DragEvent) => {
-    e.dataTransfer?.setData('placeId', String(placeId))
-    if (e.dataTransfer) e.dataTransfer.effectAllowed = 'copy'
-    window.__dragData = { placeId: String(placeId) }
+    startPlaceDrag(e.dataTransfer, placeId)
     el.classList.add('marker-dragging')
   }
   const onDragEnd = () => {
-    window.__dragData = null
+    endPlaceDrag()
     el.classList.remove('marker-dragging')
   }
   // The map pans on mousedown anywhere on its surface, and a marker sits on that
   // surface. Without this the map slides away under the pointer while the drag
   // is starting, which makes the day plan an impossible target to reach.
+  // The map then never sees the press that starts a click on the marker, which is why the Leaflet
+  // renderer clears the map's pan flag itself when a pin is pressed (wireDraggablePin, #2504).
   const onMouseDown = (e: MouseEvent) => e.stopPropagation()
 
   el.addEventListener('dragstart', onDragStart)

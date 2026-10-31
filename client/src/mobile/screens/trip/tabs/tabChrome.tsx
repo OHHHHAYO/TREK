@@ -3,6 +3,8 @@ import { ChevronDown, ChevronUp } from 'lucide-react'
 import type { ReservationTraveler } from '@trek/shared'
 import { avatarSrc } from '../../../../utils/avatarSrc'
 import GuestBadge from '../../../../components/shared/GuestBadge'
+import PluginFrame from '../../../../components/Plugins/PluginFrame'
+import { useReservationDetailPlugins } from '../../../../components/Planner/bookings/useReservationDetailPlugins'
 
 /**
  * Scroll body shared by the list-style trip tabs (transports, bookings, costs,
@@ -15,7 +17,7 @@ import GuestBadge from '../../../../components/shared/GuestBadge'
 export function TabScroller({ children }: { children: ReactNode }) {
   return (
     <div className="flex h-full flex-col">
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 pb-[calc(var(--bottom-nav-h,84px)+22px)] pt-[calc(var(--m-safe-top,12px)+58px)]">
+      <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto px-4 pb-[calc(var(--bottom-nav-h,84px)+22px)] pt-[calc(var(--m-safe-top,12px)+58px)]">
         {children}
       </div>
     </div>
@@ -46,16 +48,16 @@ export function SectionHeader({ label, count, open, onToggle }: {
       type="button"
       onClick={onToggle}
       aria-expanded={open}
-      className="mb-[2px] mt-[15px] flex w-full items-center gap-[7px] px-[2px] text-left"
+      className="mb-[2px] mt-[15px] flex w-full items-center gap-[7px] px-[2px] text-start"
     >
       <span className="font-geist text-[0.625rem] font-bold uppercase tracking-[.09em] text-m-faint">
         {label}
       </span>
       {count != null && <CountPill>{count}</CountPill>}
       {open ? (
-        <ChevronUp size={13} strokeWidth={2} className="ml-auto flex-none text-m-faint" />
+        <ChevronUp size={13} strokeWidth={2} className="ms-auto flex-none text-m-faint" />
       ) : (
-        <ChevronDown size={13} strokeWidth={2} className="ml-auto flex-none text-m-faint" />
+        <ChevronDown size={13} strokeWidth={2} className="ms-auto flex-none text-m-faint" />
       )}
     </button>
   )
@@ -121,6 +123,36 @@ export function StatusDot({ color }: { color: string }) {
 }
 
 /**
+ * Plugins that declared a reservation-detail slot, mounted at the foot of a
+ * transport / booking card and scoped to that reservation: the phone half of
+ * what ReservationsPanel does on the desktop, which the phone cards never had,
+ * so a widget like Flight Tracker only appeared once the viewport crossed the
+ * desktop breakpoint (#2440). Sits outside the card's body button (buttons
+ * cannot nest, and a tap in the frame must not open the detail sheet), and the
+ * frame follows the host colour scheme like the desktop detail slots do, so a
+ * kit plugin that goes dark with TREK keeps compositing transparently.
+ */
+export function ReservationPluginSlots({ tripId, reservationId }: { tripId: number; reservationId: number }) {
+  const plugins = useReservationDetailPlugins()
+  if (plugins.length === 0) return null
+  return (
+    <div className="flex flex-col gap-2 px-3 pb-3">
+      {plugins.map(p => (
+        <div key={p.id} className="overflow-hidden rounded-[10px] border border-[color:var(--m-rowbr)] bg-m-card">
+          <PluginFrame
+            pluginId={p.id}
+            tripId={String(tripId)}
+            reservationId={String(reservationId)}
+            title={p.name}
+            surface="detail-slot"
+          />
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
  * Read-only avatar-chip cluster for a reservation's assigned travelers (#1517).
  * The mobile transport / booking cards only display them — assignment editing
  * lives in the reservation sheet, so there is no picker here. Reuses the shared
@@ -143,7 +175,7 @@ export function TravelerAvatars({ travelers, label }: {
           return (
             <span
               key={tv.user_id}
-              className="flex items-center gap-[6px] rounded-full border border-[color:var(--m-rowbr)] bg-m-card py-[3px] pl-[3px] pr-[10px]"
+              className="flex items-center gap-[6px] rounded-full border border-[color:var(--m-rowbr)] bg-m-card py-[3px] ps-[3px] pe-[10px]"
             >
               <span className="flex h-[20px] w-[20px] flex-none items-center justify-center overflow-hidden rounded-full bg-m-act text-[0.5625rem] font-extrabold text-m-actfg">
                 {src ? <img src={src} alt="" className="h-full w-full object-cover" /> : tv.username?.[0]?.toUpperCase()}

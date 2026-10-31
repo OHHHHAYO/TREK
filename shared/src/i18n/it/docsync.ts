@@ -33,7 +33,7 @@ const docsync: TranslationStrings = {
   'docsync.providerAppPassword': 'Password per applicazioni',
   'docsync.providerAppToken': 'Token applicativo',
   'docsync.providerUsername': 'Nome utente',
-  'docsync.providerPassword': 'Password',
+  'docsync.providerPassword': 'Password', // same-as-en
   'docsync.providerOrganization': 'ID organizzazione',
   'docsync.providerBasePath': 'Cartella di base',
   'docsync.providerOTP': 'Codice a due fattori',
@@ -70,7 +70,8 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'Eliminato in TREK',
   'docsync.state.scope_drift': 'Spostato fuori dalla cartella',
 
-  'docsync.conflict.resolve': "Risolvi {count}",
+  'docsync.conflict.resolve': 'Risolvi {count}',
+  'docsync.conflict.resolve.one': 'Risolvi {count}',
 
   'docsync.conflict.title': 'Entrambe le copie sono cambiate',
   'docsync.conflict.keepTrek': 'Mantieni la versione di TREK',
@@ -178,8 +179,15 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': 'Il trasferimento non è andato a buon fine.',
 
   'docsync.error.unknown_provider': 'Questo provider non è disponibile su questa istanza.',
-  'docsync.error.provider_disabled': 'In pausa: un amministratore ha disattivato questo provider. La sincronizzazione riprende appena viene riattivato.',
+  'docsync.error.provider_disabled':
+    'In pausa: un amministratore ha disattivato questo provider. La sincronizzazione riprende appena viene riattivato.',
   'docsync.binding.reconnect': 'Riconnetti',
+  'docsync.connection.title': 'Connessione',
+  'docsync.connection.hint': 'L’indirizzo e l’accesso che TREK usa per questo archivio.',
+  'docsync.connection.edit': 'Modifica connessione',
+  'docsync.connection.remove': 'Rimuovi connessione',
+  'docsync.connection.confirmRemove':
+    'TREK dimentica l’indirizzo e l’accesso di questo archivio, e ogni sincronizzazione di questo viaggio attraverso di esso si ferma. I documenti restano in TREK e nell’archivio.',
 };
 
 export default docsync;

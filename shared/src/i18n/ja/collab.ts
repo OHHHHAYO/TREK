@@ -23,6 +23,10 @@ const collab: TranslationStrings = {
   'collab.links.pin': 'リンクを固定',
   'collab.links.unpin': 'リンクの固定を解除',
   'collab.links.delete': 'リンクを削除',
+  'collab.links.edit': 'リンクを編集',
+  'collab.links.open': 'リンクを開く',
+  'collab.links.confirmDeleteTitle': 'リンクを削除しますか？',
+  'collab.links.confirmDeleteBody': 'このリンクは完全に削除されます。',
   'collab.whatsNext.title': '次にすること',
   'collab.whatsNext.today': '今日',
   'collab.whatsNext.tomorrow': '明日',
@@ -85,7 +89,6 @@ const collab: TranslationStrings = {
   'collab.polls.close': '閉じる',
   'collab.polls.closed': '終了',
   'collab.polls.votes': '{n}票',
-  'collab.polls.vote': '{n}票',
   'collab.polls.multipleChoice': '複数選択',
   'collab.polls.multiChoice': '複数選択',
   'collab.polls.deadline': '締切',
@@ -93,10 +96,16 @@ const collab: TranslationStrings = {
   'collab.polls.options': '選択肢',
   'collab.polls.delete': '削除',
   'collab.polls.closedSection': '終了',
-  'collab.chat.imageLimit': '1件のメッセージに添付できる画像は{max}枚までです',
+  'collab.chat.imageLimit': '1件のメッセージに添付できる画像は{count}枚までです',
   'collab.chat.uploading': 'アップロード中 {percent}%',
   'collab.chat.attachImages': '画像を添付',
   'collab.chat.attachedImage': '添付画像',
   'collab.chat.closeImage': '画像を閉じる',
+  'collab.notes.categoryInUse':
+    'このカテゴリーを使っているノートがまだあります。先にそのノートを移動または削除してください。',
+  'collab.notes.categoriesLocalHint':
+    'ノートのないカテゴリーはこのブラウザーにのみ保存されます。ノートで使われると、ほかのメンバーにも表示されます。',
+  'collab.chat.fromAssistant': 'アシスタントから',
+  'collab.chat.fromAssistantHint': '{name}さんがアシスタントの回答を共有しました',
 };
 export default collab;

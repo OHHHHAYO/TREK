@@ -1,3 +1,5 @@
+import { DEMO_ACCOUNT_EMAILS } from '@trek/shared';
+
 // Central registry of demo-user email addresses.
 //
 // Historical: the demo account was seeded as "demo@trek.app" (see
@@ -23,11 +25,17 @@ export const DEMO_PASS = 'demo12345';
  * Includes the historical `demo@nomad.app` identifier so instances that
  * upgraded in place without resetting the DB still hit demo-mode guards.
  */
-export const DEMO_EMAILS: ReadonlySet<string> = new Set([
-  DEMO_EMAIL_PRIMARY,
-  'demo@nomad.app',
-]);
+export const DEMO_EMAILS: ReadonlySet<string> = new Set(DEMO_ACCOUNT_EMAILS);
 
 export function isDemoEmail(email: string | null | undefined): boolean {
   return !!email && DEMO_EMAILS.has(email);
 }
+
+/**
+ * User settings the shared demo account always holds, whatever a visitor picks.
+ * The demo seed writes them on every boot and after every hourly reset, and the
+ * settings routes leave them alone for the demo account (`demo-write.ts`), so a
+ * visitor cannot switch the demo every other visitor sees into another
+ * language.
+ */
+export const DEMO_ACCOUNT_SETTINGS: Readonly<Record<string, string>> = { language: 'en' };

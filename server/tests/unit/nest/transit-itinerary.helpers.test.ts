@@ -9,10 +9,6 @@
  * DB, no container; the db mock only satisfies distanceService's module-top
  * import of the connection proxy.
  */
-import { describe, it, expect, vi } from 'vitest';
-
-vi.mock('../../../src/db/database', () => ({ db: {} }));
-
 import {
   buildTransitReservationParts,
   cleanTransitItineraryNames,
@@ -22,9 +18,19 @@ import {
 } from '../../../src/nest/transit/transit-itinerary.helpers';
 import type { TransitItinerary, TransitLeg, TransitLegStop } from '../../../src/nest/transit/transit.helpers';
 
+import { describe, it, expect, vi } from 'vitest';
+
+vi.mock('../../../src/db/database', () => ({ db: {} }));
+
 // All fixtures sit in Asia/Tokyo (+09:00) so local dates/times are
 // deterministic regardless of the host timezone.
-const stop = (name: string, lat: number, lng: number, time: string | null, extra: Partial<TransitLegStop> = {}): TransitLegStop => ({
+const stop = (
+  name: string,
+  lat: number,
+  lng: number,
+  time: string | null,
+  extra: Partial<TransitLegStop> = {},
+): TransitLegStop => ({
   name,
   lat,
   lng,
@@ -34,7 +40,13 @@ const stop = (name: string, lat: number, lng: number, time: string | null, extra
   ...extra,
 });
 
-const leg = (mode: string, from: TransitLegStop, to: TransitLegStop, duration: number, extra: Partial<TransitLeg> = {}): TransitLeg => ({
+const leg = (
+  mode: string,
+  from: TransitLegStop,
+  to: TransitLegStop,
+  duration: number,
+  extra: Partial<TransitLeg> = {},
+): TransitLeg => ({
   mode,
   from,
   to,
@@ -277,7 +289,12 @@ describe('buildTransitReservationParts', () => {
       transfers: 1,
       walkSeconds: 300,
       legs: [
-        leg('WALK', stop('Namba entrance', 34.667, 135.501, at('09:00')), stop('Namba station', 34.6675, 135.5015, at('09:05')), 300),
+        leg(
+          'WALK',
+          stop('Namba entrance', 34.667, 135.501, at('09:00')),
+          stop('Namba station', 34.6675, 135.5015, at('09:05')),
+          300,
+        ),
         leg(
           'RAIL',
           stop('Namba station', 34.6675, 135.5015, at('09:06')),
@@ -294,12 +311,42 @@ describe('buildTransitReservationParts', () => {
       ],
     };
 
-    const { endpoints, metadata } = buildTransitReservationParts(namba, kyoto, itinerary);
+    const { endpoints, metadata } = buildTransitReservationParts(namba, kyoto, itinerary, 'transitous');
 
     expect(endpoints).toEqual([
-      { role: 'from', sequence: 0, name: 'Namba', code: null, lat: 34.667, lng: 135.501, timezone: 'Asia/Tokyo', local_date: '2026-04-01', local_time: '09:00' },
-      { role: 'stop', sequence: 1, name: 'Osaka', code: null, lat: 34.702, lng: 135.496, timezone: 'Asia/Tokyo', local_date: '2026-04-01', local_time: '09:26' },
-      { role: 'to', sequence: 2, name: 'Kyoto', code: null, lat: 35.0116, lng: 135.7681, timezone: 'Asia/Tokyo', local_date: '2026-04-01', local_time: '09:58' },
+      {
+        role: 'from',
+        sequence: 0,
+        name: 'Namba',
+        code: null,
+        lat: 34.667,
+        lng: 135.501,
+        timezone: 'Asia/Tokyo',
+        local_date: '2026-04-01',
+        local_time: '09:00',
+      },
+      {
+        role: 'stop',
+        sequence: 1,
+        name: 'Osaka',
+        code: null,
+        lat: 34.702,
+        lng: 135.496,
+        timezone: 'Asia/Tokyo',
+        local_date: '2026-04-01',
+        local_time: '09:26',
+      },
+      {
+        role: 'to',
+        sequence: 2,
+        name: 'Kyoto',
+        code: null,
+        lat: 35.0116,
+        lng: 135.7681,
+        timezone: 'Asia/Tokyo',
+        local_date: '2026-04-01',
+        local_time: '09:58',
+      },
     ]);
 
     expect(metadata).toEqual({
@@ -310,25 +357,46 @@ describe('buildTransitReservationParts', () => {
         walk_seconds: 300,
         legs: [
           {
-            mode: 'WALK', line: null, line_color: null, line_text_color: null, headsign: null, agency: null,
-            duration: 300, stops: 0,
+            mode: 'WALK',
+            line: null,
+            line_color: null,
+            line_text_color: null,
+            headsign: null,
+            agency: null,
+            duration: 300,
+            stops: 0,
             from: { name: 'Namba entrance', time: '09:00', track: null },
             to: { name: 'Namba station', time: '09:05', track: null },
-            geometry: null, geometry_precision: 6,
+            geometry: null,
+            geometry_precision: 6,
           },
           {
-            mode: 'RAIL', line: null, line_color: null, line_text_color: null, headsign: null, agency: null,
-            duration: 1200, stops: 0,
+            mode: 'RAIL',
+            line: null,
+            line_color: null,
+            line_text_color: null,
+            headsign: null,
+            agency: null,
+            duration: 1200,
+            stops: 0,
             from: { name: 'Namba station', time: '09:06', track: null },
             to: { name: 'Osaka', time: '09:26', track: '3' },
-            geometry: null, geometry_precision: 6,
+            geometry: null,
+            geometry_precision: 6,
           },
           {
-            mode: 'RAIL', line: 'Special Rapid', line_color: null, line_text_color: null, headsign: null, agency: null,
-            duration: 1680, stops: 0,
+            mode: 'RAIL',
+            line: 'Special Rapid',
+            line_color: null,
+            line_text_color: null,
+            headsign: null,
+            agency: null,
+            duration: 1680,
+            stops: 0,
             from: { name: 'Osaka', time: '09:30', track: null },
             to: { name: 'Kyoto', time: '09:58', track: null },
-            geometry: 'abc', geometry_precision: 5,
+            geometry: 'abc',
+            geometry_precision: 5,
           },
         ],
       },
@@ -338,27 +406,35 @@ describe('buildTransitReservationParts', () => {
   it('TRANSIT-ITIN-019: a transfer stop with no times at all yields null local date/time', () => {
     const kyoto = { name: 'Kyoto', lat: 35.0116, lng: 135.7681 };
     const itinerary = twoLegs();
-    itinerary.legs = [
-      { ...itinerary.legs[0], to: stop('Umeda', 34.702, 135.496, null) },
-      itinerary.legs[1],
-    ];
-    const { endpoints, metadata } = buildTransitReservationParts(namba, kyoto, itinerary);
+    itinerary.legs = [{ ...itinerary.legs[0], to: stop('Umeda', 34.702, 135.496, null) }, itinerary.legs[1]];
+    const { endpoints, metadata } = buildTransitReservationParts(namba, kyoto, itinerary, 'transitous');
     expect(endpoints[1]).toEqual({
-      role: 'stop', sequence: 1, name: 'Umeda', code: null, lat: 34.702, lng: 135.496,
-      timezone: 'Asia/Tokyo', local_date: null, local_time: null,
+      role: 'stop',
+      sequence: 1,
+      name: 'Umeda',
+      code: null,
+      lat: 34.702,
+      lng: 135.496,
+      timezone: 'Asia/Tokyo',
+      local_date: null,
+      local_time: null,
     });
     expect(metadata.transit.legs[0].to.time).toBeNull();
   });
 
   it('TRANSIT-ITIN-020: an unresolvable endpoint timezone throws with the coordinates in the message', () => {
-    expect(() => buildTransitReservationParts({ name: 'Nowhere', lat: NaN, lng: 135.501 }, umeda, singleLeg())).toThrow(
-      'Unable to resolve timezone for NaN,135.501.',
-    );
+    expect(() =>
+      buildTransitReservationParts({ name: 'Nowhere', lat: NaN, lng: 135.501 }, umeda, singleLeg(), 'transitous'),
+    ).toThrow('Unable to resolve timezone for NaN,135.501.');
   });
 
   it('TRANSIT-ITIN-021: an unconvertible itinerary time throws with the ISO string and timezone', () => {
-    expect(() => buildTransitReservationParts(namba, umeda, singleLeg({ startTime: 'not-a-date' }))).toThrow(
-      'Unable to convert not-a-date to local time in Asia/Tokyo.',
-    );
+    expect(() =>
+      buildTransitReservationParts(namba, umeda, singleLeg({ startTime: 'not-a-date' }), 'transitous'),
+    ).toThrow('Unable to convert not-a-date to local time in Asia/Tokyo.');
+  });
+
+  it('TRANSIT-ITIN-022: the journey records the backend its itinerary came from (#2850)', () => {
+    expect(buildTransitReservationParts(namba, umeda, singleLeg(), 'google').metadata.transit.provider).toBe('google');
   });
 });

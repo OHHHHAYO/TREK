@@ -1,12 +1,12 @@
-# Admin — GitHub Releases
+# Admin: GitHub Releases
 
-The **GitHub** tab shows the TREK release history fetched from GitHub and provides links to community resources and support options.
+The **GitHub** tab (in the **Integrations** group of the admin side navigation) shows the TREK release history fetched from GitHub and provides links to community resources and support options.
 
 ![GitHub tab](assets/GithubReleases.png)
 
 ## Support and resources
 
-Six cards at the top of the tab link to external resources:
+The **About** card at the top of the tab holds six tiles that link to external resources:
 
 | Card | Link |
 |------|------|
@@ -19,18 +19,18 @@ Six cards at the top of the tab link to external resources:
 
 ## Release timeline
 
-Below the support cards, a chronological timeline lists GitHub releases for the `liketrek/TREK` repository. Each entry shows:
+Below it, the **Release History** card ("Latest updates from liketrek/TREK", with a GitHub button in its head) holds a chronological timeline of GitHub releases for the `liketrek/TREK` repository. Each entry shows:
 
 - **Version tag** (e.g., `v2.9.14`)
-- A **Latest** badge on the first (most recent) entry in the displayed list
+- A **Latest** badge on the first (most recent) entry in the displayed list, and a **Pre-release** badge on pre-releases
 - **Release date** and author
 - A **Show details / Hide details** toggle that expands the release notes (a small Markdown subset rendered inline: `##` and `###` headings, `-` or `*` list items, **bold**, `code` and http(s) links; anything else is shown as plain text)
 
 Pre-release entries are hidden unless the server has both found a newer version and is itself running a pre-release. In every other case, including a pre-release install that is already on the newest pre-release, the timeline shows stable releases only.
 
-Releases load 10 at a time. Click **Load more** at the bottom of the timeline to fetch additional pages.
+Releases load 10 at a time. Click **Load more** at the bottom of the timeline to fetch additional pages. While pre-releases are hidden, one load may read up to five pages so that it does not come back empty when the newest releases are all pre-releases.
 
-If the admin API request fails, the timeline section shows an error message. If the server cannot reach the GitHub API, the timeline displays no releases (the server returns an empty list rather than an error).
+If the admin API request fails, the card shows **Failed to load releases**. If the server cannot reach the GitHub API, the timeline displays no releases (the server returns an empty list rather than an error).
 
 ## Version check
 
@@ -40,7 +40,7 @@ Results are cached for 5 minutes to avoid repeated API calls.
 
 ## Release notes notice
 
-After an update, every user is shown a **release notes** notice once: a modal on the desktop with what the release brought (three headline cards), a note from the maintainer, the support links and a **Release notes** link to the release on GitHub. Closing it keeps it closed for the version that is running; the next version brings it back once, a patch release included. It replaces the 4.0.0 notice. There is no switch for it in the admin panel.
+After an update, every user is shown a **release notes** notice once: a modal on the desktop with what the release brought (a few headline cards), a note from the maintainer, the support links and a **Release notes** link to the release on GitHub. Closing it keeps it closed for the version that is running; the next version brings it back once, a patch release included. There is no switch for it in the admin panel. The phone has its own onboarding instead.
 
 ## When to check
 

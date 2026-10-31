@@ -73,7 +73,8 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'Διαγράφηκε στο TREK',
   'docsync.state.scope_drift': 'Μετακινήθηκε εκτός του φακέλου',
 
-  'docsync.conflict.resolve': "Επίλυση {count}",
+  'docsync.conflict.resolve': 'Επίλυση {count}',
+  'docsync.conflict.resolve.one': 'Επίλυση {count}',
 
   'docsync.conflict.title': 'Άλλαξαν και τα δύο αντίγραφα',
   'docsync.conflict.keepTrek': 'Διατήρηση της έκδοσης του TREK',
@@ -181,8 +182,16 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': 'Η μεταφορά δεν ολοκληρώθηκε.',
 
   'docsync.error.unknown_provider': 'Αυτός ο πάροχος δεν είναι διαθέσιμος σε αυτή την εγκατάσταση.',
-  'docsync.error.provider_disabled': 'Σε παύση: ένας διαχειριστής απενεργοποίησε αυτόν τον πάροχο. Ο συγχρονισμός θα συνεχιστεί μόλις ενεργοποιηθεί ξανά.',
+  'docsync.error.provider_disabled':
+    'Σε παύση: ένας διαχειριστής απενεργοποίησε αυτόν τον πάροχο. Ο συγχρονισμός θα συνεχιστεί μόλις ενεργοποιηθεί ξανά.',
   'docsync.binding.reconnect': 'Επανασύνδεση',
+  'docsync.connection.title': 'Σύνδεση',
+  'docsync.connection.hint':
+    'Η διεύθυνση και τα στοιχεία σύνδεσης που χρησιμοποιεί το TREK για αυτόν τον χώρο αποθήκευσης.',
+  'docsync.connection.edit': 'Επεξεργασία σύνδεσης',
+  'docsync.connection.remove': 'Αφαίρεση σύνδεσης',
+  'docsync.connection.confirmRemove':
+    'Το TREK ξεχνά τη διεύθυνση και τα στοιχεία σύνδεσης αυτού του χώρου αποθήκευσης και κάθε συγχρονισμός αυτού του ταξιδιού μέσω αυτού σταματά. Τα έγγραφα μένουν στο TREK και στον χώρο αποθήκευσης.',
 };
 
 export default docsync;

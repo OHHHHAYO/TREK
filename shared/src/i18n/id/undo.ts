@@ -5,11 +5,12 @@ const undo: TranslationStrings = {
   'undo.tooltip': 'Batalkan: {action}',
   'undo.assignPlace': 'Tempat ditambahkan ke hari',
   'undo.removeAssignment': 'Tempat dihapus dari hari',
+  'undo.clearDay': 'Hari dikosongkan',
   'undo.reorder': 'Tempat diurutkan ulang',
   'undo.optimize': 'Rute dioptimalkan',
   'undo.deletePlace': 'Tempat dihapus',
   'undo.deletePlaces': 'Tempat dihapus',
-  'undo.changeCategory': 'Category changed',
+  'undo.changeCategory': 'Kategori diubah',
   'undo.moveDay': 'Tempat dipindah ke hari lain',
   'undo.lock': 'Kunci tempat diubah',
   'undo.importGpx': 'Impor GPX',
@@ -19,6 +20,7 @@ const undo: TranslationStrings = {
   'undo.importNaverList': 'Impor Naver Maps',
   'undo.addPlace': 'Tempat ditambahkan',
   'undo.done': 'Dibatalkan: {action}',
+  'undo.failed': 'Tidak dapat membatalkan: {action}',
   'undo.importBooking': 'Impor konfirmasi pemesanan',
 };
 export default undo;

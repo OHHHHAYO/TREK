@@ -12,6 +12,14 @@ import { useServerPing } from '../../../sync/useServerPing'
  * reason for the same problem.
  */
 
+/** What a connection test answers; `detail` is the store's own reason, for the person fixing it. */
+export interface DocSyncVerdict {
+  connected: boolean
+  account?: string
+  error?: string
+  detail?: string
+}
+
 export interface DocSyncField {
   field_key: string
   label: string
@@ -257,6 +265,27 @@ export function useDocSync(tripId: number | string, enabled: boolean) {
   }, [tripId, load])
 
   /**
+   * Forget a stored connection, and with it every binding of this trip that
+   * runs through it. The documents stay on both sides; what goes is the
+   * address and the login TREK kept for the store, which is the one thing a
+   * person changing accounts or folders had no way to take back.
+   */
+  const removeConnection = useCallback(async (connectionId: number) => {
+    setBusy('connection')
+    setError(null)
+    try {
+      await docsyncApi.deleteConnection(tripId, connectionId)
+      await load()
+      return true
+    } catch (e: unknown) {
+      setError(readError(e))
+      return false
+    } finally {
+      setBusy(null)
+    }
+  }, [tripId, load])
+
+  /**
    * Probe without saving. Always resolves to a verdict object: the route
    * answers 200 even for an unreachable instance, because a form showing a typo
    * needs a field to render, not an exception.
@@ -264,11 +293,9 @@ export function useDocSync(tripId: number | string, enabled: boolean) {
   const testConnection = useCallback(async (providerId: string, baseUrl: string, credentials: Record<string, string>, allowInsecureTls: boolean) => {
     setBusy('test')
     try {
-      return await docsyncApi.testConnection(tripId, { providerId, baseUrl, credentials, allowInsecureTls }) as {
-        connected: boolean; account?: string; error?: string; detail?: string
-      }
+      return await docsyncApi.testConnection(tripId, { providerId, baseUrl, credentials, allowInsecureTls }) as DocSyncVerdict
     } catch (e: unknown) {
-      return { connected: false, error: readError(e) }
+      return { connected: false, error: readError(e) } satisfies DocSyncVerdict
     } finally {
       setBusy(null)
     }
@@ -421,7 +448,7 @@ export function useDocSync(tripId: number | string, enabled: boolean) {
     connections, links, itemCounts,
     loading, busy, error,
     connectionFor, load,
-    saveConnection, testConnection,
+    saveConnection, testConnection, removeConnection,
     loadScopes, createScope,
     createLink, updateLink, removeLink, syncNow, resolveConflict,
   }

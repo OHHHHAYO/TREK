@@ -5,11 +5,12 @@ const undo: TranslationStrings = {
   'undo.tooltip': 'Ongedaan maken: {action}',
   'undo.assignPlace': 'Locatie aan dag toegewezen',
   'undo.removeAssignment': 'Locatie uit dag verwijderd',
+  'undo.clearDay': 'Dag leeggemaakt',
   'undo.reorder': 'Locaties hergeordend',
   'undo.optimize': 'Route geoptimaliseerd',
   'undo.deletePlace': 'Locatie verwijderd',
   'undo.deletePlaces': 'Plaatsen verwijderd',
-  'undo.changeCategory': 'Category changed',
+  'undo.changeCategory': 'Categorie gewijzigd',
   'undo.moveDay': 'Locatie naar andere dag verplaatst',
   'undo.lock': 'Vergrendeling locatie gewijzigd',
   'undo.importGpx': 'GPX-import',
@@ -19,6 +20,7 @@ const undo: TranslationStrings = {
   'undo.importNaverList': 'Naver Maps-import',
   'undo.addPlace': 'Locatie toegevoegd',
   'undo.done': 'Ongedaan gemaakt: {action}',
+  'undo.failed': 'Ongedaan maken mislukt: {action}',
   'undo.importBooking': 'Boekingsbevestiging importeren',
 };
 export default undo;

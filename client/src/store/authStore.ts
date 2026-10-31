@@ -7,18 +7,29 @@ import { getApiErrorMessage } from '../types'
 import { tripSyncManager } from '../sync/tripSyncManager'
 import { reopenForUser, deleteCurrentUserDb } from '../db/offlineDb'
 import { setAuthed } from '../sync/authGate'
-import { setForcedOffline } from '../sync/networkMode'
+import { isEffectivelyOffline, setForcedOffline } from '../sync/networkMode'
+import { mutationQueue } from '../sync/mutationQueue'
 import { registerSyncTriggers, unregisterSyncTriggers } from '../sync/syncTriggers'
 import { useSystemNoticeStore } from './systemNoticeStore.js'
 import { clearAppearanceSnapshot } from '../theme/applyAppearance'
 import { clearAllPluginSessions } from './pluginStore'
 import { forgetStartDestination } from '../utils/startDestination'
 import { forgetServerLanguage } from './settingsStore'
+import { forgetResumeRoute } from '../utils/resumeRoute'
 import { markSignedOut, clearSignedOut } from '../utils/signedOut'
+import { forgetPushDeviceOnLogout, resyncPushSubscription } from '../push/webPush'
+import { browserTimeZone } from '../utils/localDate'
+
+/** How long a logout waits for the queued changes to go out. */
+const LOGOUT_FLUSH_MS = 5000
 
 interface AuthResponse {
   user: User
-  token: string
+  /**
+   * @deprecated Still in the body for API clients that read it; the session is
+   * the httpOnly cookie the same response sets. Nothing here reads it.
+   */
+  token?: string
 }
 
 export type LoginResult = AuthResponse | { mfa_required: true; mfa_token: string }
@@ -52,6 +63,10 @@ interface AuthState {
    *  into one "has a search key": which of the two is missing decides what the
    *  admin has to go and do. */
   hasAmapKey: boolean
+  /** The admin's places provider choice, as app-config normalises it: 'auto',
+   *  'google', 'amap' or 'openstreetmap'. Read with hasMapsKey to tell whether
+   *  a search can reach Google at all (utils/placeSource googleHoldsSlot). */
+  placesProvider: string
   serverTimezone: string
   /** Server policy: all users must enable MFA */
   appRequireMfa: boolean
@@ -60,6 +75,8 @@ interface AuthState {
   placesAutocompleteEnabled: boolean
   placesDetailsEnabled: boolean
   placesEnrichEnabled: boolean
+  /** FILE_UPLOAD_LIMIT_MB from the server (#1364); 50 until the config arrives. */
+  maxUploadMb: number
   /** Server records which search result was picked (admin switch, default off). */
   placeShadowEnabled: boolean
 
@@ -81,6 +98,7 @@ interface AuthState {
   setAppVersion: (val: string) => void
   setHasMapsKey: (val: boolean) => void
   setHasAmapKey: (val: boolean) => void
+  setPlacesProvider: (val: string) => void
   setServerTimezone: (tz: string) => void
   setAppRequireMfa: (val: boolean) => void
   setTripRemindersEnabled: (val: boolean) => void
@@ -88,6 +106,7 @@ interface AuthState {
   setPlacesAutocompleteEnabled: (val: boolean) => void
   setPlacesDetailsEnabled: (val: boolean) => void
   setPlacesEnrichEnabled: (val: boolean) => void
+  setMaxUploadMb: (val: number) => void
   setPlaceShadowEnabled: (val: boolean) => void
   demoLogin: () => Promise<AuthResponse>
 }
@@ -114,6 +133,9 @@ async function onAuthSuccess(userId: number): Promise<void> {
   // an SPA session, so a second login in the same tab would leave the mutation
   // queue without a flush trigger. Re-registering is a no-op while they are up.
   registerSyncTriggers()
+  // Tell the server again which push subscription this device holds, in the
+  // background: sign-in must not wait on it, and it never rejects.
+  void resyncPushSubscription()
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -132,13 +154,15 @@ export const useAuthStore = create<AuthState>()(
   appVersion: '',
   hasMapsKey: false,
   hasAmapKey: false,
-  serverTimezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+  placesProvider: 'auto',
+  serverTimezone: browserTimeZone() ?? '',
   appRequireMfa: false,
   tripRemindersEnabled: false,
   placesPhotosEnabled: true,
   placesAutocompleteEnabled: true,
   placesDetailsEnabled: true,
   placesEnrichEnabled: true,
+  maxUploadMb: 50,
   // Fail-closed: an old server sends no flag and nothing is logged.
   placeShadowEnabled: false,
 
@@ -223,6 +247,15 @@ export const useAuthStore = create<AuthState>()(
   },
 
   logout: async () => {
+    // 0. Send what is still queued while the session can. Step 6 deletes this
+    // user's offline database, and an edit made offline and not yet sent would
+    // go with it. Bounded, so a slow server never holds the logout.
+    if (!isEffectivelyOffline()) {
+      await Promise.race([
+        mutationQueue.flush().catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, LOGOUT_FLUSH_MS)),
+      ])
+    }
     // 1. Gate first so any in-flight flush/syncAll bails before we wipe the DB.
     setAuthed(false)
     // Flagged in the same update that drops the session: clearing isAuthenticated
@@ -253,11 +286,17 @@ export const useAuthStore = create<AuthState>()(
     // browser language is one TREK ships, so otherwise the next user here stays
     // in the previous account's language, launch after launch.
     forgetServerLanguage()
+    forgetResumeRoute()
     // And work-offline, for the same reason with sharper teeth: the switch lives
     // in localStorage, step 6 below deletes the offline database it reads from,
     // and the next account would come up believing it is offline over a working
     // connection, with nothing cached to answer from.
     setForcedOffline(false)
+    // Forget this device's push subscription, on the server and in the browser,
+    // or the next account on a shared device keeps receiving this one's
+    // notifications. It has to happen here: the DELETE needs the session cookie
+    // that step 4 clears. Best effort and bounded, so logout never hangs on it.
+    await forgetPushDeviceOnLogout()
     // 4. Tell server to clear the httpOnly cookie (best-effort).
     await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' }).catch(() => {})
     // 5. Clear service worker caches containing sensitive data.
@@ -402,6 +441,7 @@ export const useAuthStore = create<AuthState>()(
   setAppVersion: (val: string) => set({ appVersion: val }),
   setHasMapsKey: (val: boolean) => set({ hasMapsKey: val }),
   setHasAmapKey: (val: boolean) => set({ hasAmapKey: val }),
+  setPlacesProvider: (val: string) => set({ placesProvider: val }),
   setServerTimezone: (tz: string) => set({ serverTimezone: tz }),
   setAppRequireMfa: (val: boolean) => set({ appRequireMfa: val }),
   setTripRemindersEnabled: (val: boolean) => set({ tripRemindersEnabled: val }),
@@ -409,6 +449,7 @@ export const useAuthStore = create<AuthState>()(
   setPlacesAutocompleteEnabled: (val: boolean) => set({ placesAutocompleteEnabled: val }),
   setPlacesDetailsEnabled: (val: boolean) => set({ placesDetailsEnabled: val }),
   setPlacesEnrichEnabled: (val: boolean) => set({ placesEnrichEnabled: val }),
+  setMaxUploadMb: (val: number) => set({ maxUploadMb: val }),
   setPlaceShadowEnabled: (val: boolean) => set({ placeShadowEnabled: val }),
 
   demoLogin: async () => {

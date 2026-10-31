@@ -71,7 +71,8 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'Supprimé dans TREK',
   'docsync.state.scope_drift': 'Sorti du dossier',
 
-  'docsync.conflict.resolve': "Régler {count}",
+  'docsync.conflict.resolve': 'Régler {count}',
+  'docsync.conflict.resolve.one': 'Régler {count}',
 
   'docsync.conflict.title': 'Les deux copies ont changé',
   'docsync.conflict.keepTrek': 'Garder la version TREK',
@@ -125,7 +126,7 @@ const docsync: TranslationStrings = {
   'docsync.flow.trek': 'TREK',
   'docsync.flow.toProvider': 'Vers le fournisseur',
   'docsync.flow.toTrek': 'Depuis le fournisseur',
-  'docsync.flow.documents': 'documents',
+  'docsync.flow.documents': 'documents', // same-as-en
   'docsync.flow.summary.both': 'Les documents circulent dans les deux sens.',
   'docsync.flow.summary.pull': 'Les documents ne font qu’entrer.',
   'docsync.flow.summary.push': 'Les documents ne font que sortir.',
@@ -180,8 +181,15 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': 'Le transfert n’a pas abouti.',
 
   'docsync.error.unknown_provider': 'Ce fournisseur n’est pas disponible sur cette instance.',
-  'docsync.error.provider_disabled': 'En pause : un administrateur a désactivé ce fournisseur. La synchronisation reprendra dès qu’il sera réactivé.',
+  'docsync.error.provider_disabled':
+    'En pause : un administrateur a désactivé ce fournisseur. La synchronisation reprendra dès qu’il sera réactivé.',
   'docsync.binding.reconnect': 'Reconnecter',
+  'docsync.connection.title': 'Connexion',
+  'docsync.connection.hint': 'L’adresse et l’identifiant que TREK utilise pour ce stockage.',
+  'docsync.connection.edit': 'Modifier la connexion',
+  'docsync.connection.remove': 'Supprimer la connexion',
+  'docsync.connection.confirmRemove':
+    'TREK oublie l’adresse et l’identifiant de ce stockage, et toute synchronisation de ce voyage par son biais s’arrête. Les documents restent dans TREK et dans le stockage.',
 };
 
 export default docsync;

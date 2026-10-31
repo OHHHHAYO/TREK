@@ -1,4 +1,3 @@
-import { describe, it, expect } from 'vitest';
 import {
   journeyCreateRequestSchema,
   journeyAddTripRequestSchema,
@@ -9,7 +8,15 @@ import {
   journeyUpdateRequestSchema,
   journeyPreferencesRequestSchema,
   journeyLinkPhotoRequestSchema,
+  journeyEntriesRangeSchema,
+  journeyEntryProsConsSchema,
+  journeyEntryTypeSchema,
+  journeyEntryVisibilitySchema,
+  journeyCreateToolSchema,
+  journeyUpdateToolSchema,
 } from './journey.schema';
+
+import { describe, it, expect } from 'vitest';
 
 /**
  * These schemas describe the journey bodies rather than tighten them, and the
@@ -69,7 +76,10 @@ describe('journeyContributorRequestSchema', () => {
 describe('journeyProviderPhotosRequestSchema', () => {
   it('accepts single and batch, and leaves the incomplete pair to the handler', () => {
     expect(journeyProviderPhotosRequestSchema.safeParse({ provider: 'immich', asset_id: 'a1' }).success).toBe(true);
-    expect(journeyProviderPhotosRequestSchema.safeParse({ provider: 'immich', asset_ids: ['a1', 2], media_types: ['video'] }).success).toBe(true);
+    expect(
+      journeyProviderPhotosRequestSchema.safeParse({ provider: 'immich', asset_ids: ['a1', 2], media_types: ['video'] })
+        .success,
+    ).toBe(true);
     // The handler answers 'provider and asset_id required'.
     expect(journeyProviderPhotosRequestSchema.safeParse({ asset_id: 'a1' }).success).toBe(true);
     expect(journeyProviderPhotosRequestSchema.safeParse({}).success).toBe(true);
@@ -83,14 +93,71 @@ describe('journeyShareLinkRequestSchema', () => {
     // The controller coerces with !!; a string flag has always worked.
     expect(journeyShareLinkRequestSchema.safeParse({ share_map: 'true' }).success).toBe(true);
   });
+
+  it('takes the plan and recordings flags as booleans only, being new (JRN-04)', () => {
+    expect(journeyShareLinkRequestSchema.safeParse({ share_plan: true, share_recordings: false }).success).toBe(true);
+    expect(journeyShareLinkRequestSchema.safeParse({ share_plan: 'true' }).success).toBe(false);
+    expect(journeyShareLinkRequestSchema.safeParse({ share_recordings: 1 }).success).toBe(false);
+  });
 });
 
 describe('the free-form bodies keep their unknown keys', () => {
   it('does not strip what the services are handed whole', () => {
     // The whole reason these are loose objects: a strict object drops unknown
     // keys, and update/preferences/link are forwarded to the service as sent.
-    expect(journeyUpdateRequestSchema.parse({ title: 'X', cover_photo_id: 9 })).toEqual({ title: 'X', cover_photo_id: 9 });
-    expect(journeyPreferencesRequestSchema.parse({ layout: 'grid', density: 2 })).toEqual({ layout: 'grid', density: 2 });
-    expect(journeyLinkPhotoRequestSchema.parse({ journey_photo_id: 4, extra: true })).toEqual({ journey_photo_id: 4, extra: true });
+    expect(journeyUpdateRequestSchema.parse({ title: 'X', cover_photo_id: 9 })).toEqual({
+      title: 'X',
+      cover_photo_id: 9,
+    });
+    expect(journeyPreferencesRequestSchema.parse({ layout: 'grid', density: 2 })).toEqual({
+      layout: 'grid',
+      density: 2,
+    });
+    expect(journeyLinkPhotoRequestSchema.parse({ journey_photo_id: 4, extra: true })).toEqual({
+      journey_photo_id: 4,
+      extra: true,
+    });
+  });
+});
+
+describe('the entry enums and the range of a read', () => {
+  it('JRNSCH-001: names the entry types and visibilities a row can hold, nothing else', () => {
+    expect(journeyEntryTypeSchema.options).toEqual(['entry', 'checkin', 'skeleton']);
+    expect(journeyEntryVisibilitySchema.options).toEqual(['private', 'shared', 'public']);
+    expect(journeyEntryVisibilitySchema.safeParse('friends-only').success).toBe(false);
+  });
+
+  it('JRNSCH-002: a verdict sent half fills the other half with an empty list and refuses extra keys', () => {
+    expect(journeyEntryProsConsSchema.parse({ pros: ['view'] })).toEqual({ pros: ['view'], cons: [] });
+    expect(journeyEntryProsConsSchema.safeParse({ pros: [], cons: [], extra: 1 }).success).toBe(false);
+  });
+
+  it('JRNSCH-003: a range takes calendar days at either end, both optional', () => {
+    expect(journeyEntriesRangeSchema.parse({})).toEqual({});
+    expect(journeyEntriesRangeSchema.parse({ from: '2026-10-21', to: '2026-10-22' })).toEqual({
+      from: '2026-10-21',
+      to: '2026-10-22',
+    });
+    expect(journeyEntriesRangeSchema.safeParse({ from: '2026-02-30' }).success).toBe(false);
+    expect(journeyEntriesRangeSchema.safeParse({ to: 'yesterday' }).success).toBe(false);
+  });
+});
+
+describe('the journey tool arguments', () => {
+  it('JSCHEMA-TOOL-001: a new journey needs a title and refuses what the tool does not take', () => {
+    expect(journeyCreateToolSchema.parse({ title: 'Japan', trip_ids: [5] })).toEqual({ title: 'Japan', trip_ids: [5] });
+    expect(journeyCreateToolSchema.safeParse({ title: '' }).success).toBe(false);
+    expect(journeyCreateToolSchema.safeParse({ title: 'x'.repeat(201) }).success).toBe(false);
+    expect(journeyCreateToolSchema.safeParse({ title: 'Japan', cover: 'x' }).success).toBe(false);
+  });
+
+  it('JSCHEMA-TOOL-002: an update takes the trip tracks and the cover gradient, and null for the subtitle', () => {
+    const update = { show_trip_tracks: true, cover_gradient: null, subtitle: null, status_override: null };
+    expect(journeyUpdateToolSchema.parse(update)).toEqual(update);
+    expect(journeyUpdateToolSchema.safeParse({ status: 'upcoming' }).success).toBe(false);
+    expect(journeyUpdateToolSchema.safeParse({ status_override: 'active' }).success).toBe(false);
+    expect(journeyUpdateToolSchema.safeParse({ title: null }).success).toBe(false);
+    expect(journeyUpdateToolSchema.safeParse({ show_mood: 'yes' }).success).toBe(false);
+    expect(journeyUpdateToolSchema.safeParse({ cover_gradient: 'x'.repeat(201) }).success).toBe(false);
   });
 });

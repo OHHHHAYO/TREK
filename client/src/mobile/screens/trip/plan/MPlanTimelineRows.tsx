@@ -1,8 +1,11 @@
-import { BedDouble, Car, ChevronDown, ChevronUp, Clock, Footprints, Pencil, Route, StickyNote, Ticket, X, Zap } from 'lucide-react'
+import { BedDouble, ChevronDown, ChevronUp, Clock, Footprints, Pencil, Route, StickyNote, Ticket, X, Zap } from 'lucide-react'
+import { routeModeIcon } from '../../../../components/Planner/routeModes'
 import type { ReactNode, MouseEvent, CSSProperties } from 'react'
 import PlaceAvatar from '../../../../components/shared/PlaceAvatar'
 import { getCategoryIcon } from '../../../../components/shared/categoryIcons'
 import MarkdownText from '../../../../components/shared/MarkdownText'
+import { BlurredCode } from '../../../../components/shared/BookingCode'
+import { useBlurBookingCodes } from '../../../../hooks/useBlurBookingCodes'
 import { RES_ICONS, getNoteIcon } from '../../../../components/Planner/DayPlanSidebar.constants'
 import { noteSurface } from '../../../../components/Planner/noteSurface'
 import { getDisplayTimeForDay, getSpanPhase } from '../../../../utils/dayMerge'
@@ -14,6 +17,12 @@ import type { TransitLegDisplay } from '../../../../components/Planner/transitDi
 import type { Assignment, DayNote, Place, Reservation, RouteSegment, TranslationFn } from '../../../../types'
 import { formatScheduleMinutes } from '../../../../components/Plugins/PluginDaySchedule'
 import type { PluginDayScheduleItem } from '../../../../api/client'
+import type { TourListItem } from '@trek/shared'
+import TourDayRowFacts, { TourDayRowIcon } from '../../../../components/Tours/TourDayRowFacts'
+import { WalkLateLine } from '../../../../components/Tours/walk/WalkTransitNote'
+import { TourDayTimeText, TourOverrunLine } from '../../../../components/Tours/TourDayTimeParts'
+import { tourDayEntryOf, type TourOverrun } from '../../../../components/Tours/tourDayTime'
+import type { WalkLate } from '../../../../components/Tours/walk/walkTransit'
 
 /**
  * The five row types of the mobile day timeline (place / manual transport /
@@ -113,35 +122,45 @@ function AvatarRing({ children, className = '', style }: { children: ReactNode; 
 }
 
 const TIME_CHIP = 'flex-none whitespace-nowrap rounded-[6px] bg-[color:var(--m-ic)] px-[6px] py-px font-geist text-[0.65625rem] font-semibold'
+const ROW_CODE = 'flex-none whitespace-nowrap font-geist text-[0.71875rem] text-m-muted'
 
 // ── b3) Place row ────────────────────────────────────────────────────────────
 
-export function PlaceRow({ assignment, fullPlace, linkedReservations, chrome, reorder, drag, onOpen, onEdit, onRemove }: {
+export function PlaceRow({ assignment, fullPlace, tour, linkedReservations, chrome, reorder, drag, onOpen, onEdit, onRemove, overrun }: {
   assignment: Assignment
   fullPlace: Place | undefined
+  tour?: TourListItem
+  /** TIME-02: the day's next timed item this tour runs into, or null. */
+  overrun?: TourOverrun | null
   linkedReservations: Reservation[]
   chrome: RowChrome
   reorder: ReactNode
   drag?: RowDrag
   onOpen: () => void
-  onEdit: () => void
+  onEdit?: () => void
   onRemove: () => void
 }) {
   const { t } = chrome
   const place = assignment.place
   const CatIcon = getCategoryIcon(place?.category?.icon)
   const time = fmtTime(place?.place_time, chrome)
+  const blurCodes = useBlurBookingCodes()
   // One line per booking on the stop (#2201). A single one keeps the bare
   // status line it always had; once there are several, the title tells them
   // apart, since "Confirmed" twice over says nothing.
-  const bookingLines = linkedReservations.map(r => ({
-    id: r.id,
-    text: [
+  // A code under the blur setting cannot stay inside the line, because the
+  // first line goes through the Markdown caption and that only takes a string.
+  // It is kept apart as `code` and drawn blurred right after the line.
+  const bookingLines = linkedReservations.map(r => {
+    const code = r.confirmation_number ? `#${r.confirmation_number}` : ''
+    const parts = [
       linkedReservations.length > 1 ? r.title : '',
       r.status === 'confirmed' ? t('dayplan.confirmed') : t('dayplan.pendingRes'),
-      r.confirmation_number ? `#${r.confirmation_number}` : '',
-    ].filter(Boolean).join(' · '),
-  }))
+    ]
+    return blurCodes && code
+      ? { id: r.id, text: `${parts.filter(Boolean).join(' · ')} ·`, code }
+      : { id: r.id, text: [...parts, code].filter(Boolean).join(' · '), code: '' }
+  })
   const sub = bookingLines.length > 0
     ? bookingLines[0].text
     : place?.address || place?.description || ''
@@ -161,7 +180,7 @@ export function PlaceRow({ assignment, fullPlace, linkedReservations, chrome, re
     >
       {!chrome.editing && (
         <AvatarRing className="shadow-[0_3px_8px_-3px_rgba(0,0,0,.4)]">
-          <PlaceAvatar
+          {tour ? <TourDayRowIcon type={tour.tour_type} /> : <PlaceAvatar
             place={fullPlace ?? {
               id: place?.id ?? assignment.place_id,
               name: place?.name ?? '',
@@ -173,12 +192,12 @@ export function PlaceRow({ assignment, fullPlace, linkedReservations, chrome, re
             }}
             size={27}
             category={place?.category ? { color: place.category.color ?? undefined, icon: place.category.icon ?? undefined } : null}
-          />
+          />}
         </AvatarRing>
       )}
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
-          <CatIcon size={12} strokeWidth={2.2} className="flex-none text-m-muted" />
+          {tour ? (chrome.editing && <TourDayRowIcon type={tour.tour_type} size={20} />) : <CatIcon size={12} strokeWidth={2.2} className="flex-none text-m-muted" />}
           <span className="min-w-0 truncate text-[0.875rem] font-semibold">{place?.name}</span>
           {bookingLines.length > 0 && (
             <span className="flex flex-none items-center gap-1 rounded-full bg-[color:var(--m-ic)] px-[7px] py-[2px] text-[0.5625rem] font-bold tracking-[.04em]">
@@ -187,15 +206,18 @@ export function PlaceRow({ assignment, fullPlace, linkedReservations, chrome, re
             </span>
           )}
         </div>
+        {tour && <div className="mt-[2px]"><TourDayRowFacts tour={tour} assignmentId={assignment.id} mobile /></div>}
         {(time || sub) && (
           <div className="mt-[2px] flex min-w-0 items-center gap-1.5">
-            {time && <span className={TIME_CHIP}>{time}</span>}
+            {time && <span className={TIME_CHIP}>{tour ? <TourDayTimeText entry={tourDayEntryOf(assignment)} tour={tour} mobile /> : time}</span>}
             {sub && <MarkdownText clamp className="min-w-0 font-geist text-[0.71875rem] text-m-muted">{sub}</MarkdownText>}
+            {bookingLines[0]?.code && <BlurredCode interactive={false} className={ROW_CODE}>{bookingLines[0].code}</BlurredCode>}
           </div>
         )}
         {bookingLines.slice(1).map(line => (
           <div key={line.id} className="mt-[2px] flex min-w-0 items-center gap-1.5">
             <span className="min-w-0 truncate font-geist text-[0.71875rem] text-m-muted">{line.text}</span>
+            {line.code && <BlurredCode interactive={false} className={ROW_CODE}>{line.code}</BlurredCode>}
           </div>
         ))}
         {assignment.notes && (
@@ -207,12 +229,15 @@ export function PlaceRow({ assignment, fullPlace, linkedReservations, chrome, re
             <MarkdownText clamp className="min-w-0 font-geist text-[0.65625rem] text-m-faint">{assignment.notes}</MarkdownText>
           </div>
         )}
+        <TourOverrunLine overrun={overrun} />
       </div>
       {chrome.editing && (
         <span className="flex flex-none items-center gap-1.5">
-          <ActionCircle label={t('common.edit')} onClick={onEdit}>
-            <Pencil size={14} strokeWidth={2} />
-          </ActionCircle>
+          {onEdit && (
+            <ActionCircle label={t('common.edit')} onClick={onEdit}>
+              <Pencil size={14} strokeWidth={2} />
+            </ActionCircle>
+          )}
           <ActionCircle label={t('planner.removeFromDay')} onClick={onRemove}>
             <X size={14} strokeWidth={2} />
           </ActionCircle>
@@ -240,7 +265,7 @@ export function TransportRow({ res, dayId, chrome, reorder, drag, onOpen }: {
   const time = start
     ? `${fmtTime(start, chrome)}${phase === 'single' && end ? ` – ${fmtTime(end, chrome)}` : ''}`
     : ''
-  const sub = transportSubtitle(res)
+  const sub = transportSubtitle(res, chrome.t)
 
   return (
     <div
@@ -320,7 +345,7 @@ function TransitLegRows({ legs, t }: { legs: TransitLegDisplay[]; t: Translation
         const hasSeg = i < legs.length - 1
         return (
           <div key={i} className="flex gap-[9px]">
-            <span className="w-9 flex-none pt-[9px] text-right font-geist text-[0.65625rem] font-semibold tabular-nums text-m-muted">
+            <span className="w-9 flex-none pt-[9px] text-end font-geist text-[0.65625rem] font-semibold tabular-nums text-m-muted">
               {isWalk ? '' : leg.from?.time?.slice(0, 5) || ''}
             </span>
             <div className="flex w-3 flex-none flex-col items-center">
@@ -342,7 +367,7 @@ function TransitLegRows({ legs, t }: { legs: TransitLegDisplay[]; t: Translation
             <div className="min-w-0 flex-1 py-[7px]">
               {isWalk ? (
                 <div className="truncate font-geist text-[0.6875rem] font-semibold text-m-muted">
-                  <Footprints size={10} strokeWidth={2.2} className="mr-1 inline-block align-[-1px]" />
+                  <Footprints size={10} strokeWidth={2.2} className="me-1 inline-block align-[-1px]" />
                   {[mins ? t('transit.min', { count: mins }) : '', t('transit.walkTo', { name: leg.to?.name || '' })]
                     .filter(Boolean).join(' · ')}
                 </div>
@@ -371,7 +396,7 @@ function TransitLegRows({ legs, t }: { legs: TransitLegDisplay[]; t: Translation
   )
 }
 
-export function TransitRow({ res, transit, dayId, open, chrome, reorder, drag, onToggle, onOpenJourney }: {
+export function TransitRow({ res, transit, dayId, open, chrome, reorder, drag, onToggle, onOpenJourney, late }: {
   res: TransportEntry
   transit: TransitMeta
   dayId: number
@@ -381,6 +406,8 @@ export function TransitRow({ res, transit, dayId, open, chrome, reorder, drag, o
   drag?: RowDrag
   onToggle: () => void
   onOpenJourney: () => void
+  /** CW-08: the city walk this journey now arrives too late for. */
+  late?: WalkLate | null
 }) {
   const { t } = chrome
   const Icon = RES_ICONS.transit
@@ -410,14 +437,15 @@ export function TransitRow({ res, transit, dayId, open, chrome, reorder, drag, o
               {to ? `${from} → ${to}` : res.title}
             </span>
             {start && (
-              <span className="ml-auto flex-none whitespace-nowrap rounded-[6px] bg-[color:var(--m-ic)] px-[6px] py-px font-geist text-[0.6875rem] font-semibold tabular-nums">
-                <Clock size={10} strokeWidth={2.2} className="mr-[3px] inline-block align-[-1px]" />
+              <span className="ms-auto flex-none whitespace-nowrap rounded-[6px] bg-[color:var(--m-ic)] px-[6px] py-px font-geist text-[0.6875rem] font-semibold tabular-nums">
+                <Clock size={10} strokeWidth={2.2} className="me-[3px] inline-block align-[-1px]" />
                 {fmtTime(start, chrome)}{end ? ` – ${fmtTime(end, chrome)}` : ''}
               </span>
             )}
-            <Chevron size={15} strokeWidth={2} className={`flex-none text-m-faint ${start ? '' : 'ml-auto'}`} />
+            <Chevron size={15} strokeWidth={2} className={`flex-none text-m-faint ${start ? '' : 'ms-auto'}`} />
           </div>
           <TransitStrip legs={transit.legs} />
+          <WalkLateLine late={late} />
         </div>
         {open && <TransitLegRows legs={transit.legs} t={t} />}
       </div>
@@ -438,7 +466,7 @@ export function TransitRow({ res, transit, dayId, open, chrome, reorder, drag, o
 /** The connector line of a routed leg — the leg's own mode (#1281) picks icon and duration. */
 function TravelLine({ seg }: { seg: RouteSegment }) {
   const mode = seg.mode
-  const Icon = mode === 'walking' ? Footprints : mode?.startsWith('plugin:') ? Zap : Car
+  const Icon = routeModeIcon(mode)
   const durationText = seg.durationText ?? (mode === 'walking' ? seg.walkingText : seg.drivingText)
   return (
     <>
@@ -537,7 +565,7 @@ export function NoteRow({ note, chrome, reorder, drag, onEdit }: {
   const { time: noteTime, detail } = splitNoteTime(note.time)
   const time = noteTime ? fmtTime(noteTime, chrome) : ''
   const [title, ...rest] = note.text.split('\n')
-  const titleExtra = rest.join(' ').trim()
+  const titleExtra = rest.join('\n').trim()
 
   return (
     <div
@@ -547,10 +575,10 @@ export function NoteRow({ note, chrome, reorder, drag, onEdit }: {
       // A link in the rendered body keeps its own tap; the rest of the row edits.
       onClick={chrome.editing ? (e => { if (!(e.target as HTMLElement).closest('a')) onEdit() }) : undefined}
       onKeyDown={chrome.editing ? (e => { if (e.target === e.currentTarget && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); onEdit() } }) : undefined}
-      className={`my-[2px] flex items-center gap-2.5 ${chrome.editing ? 'cursor-pointer' : ''} ${dragClass(drag)}`}
+      className={`my-[2px] flex items-start gap-2.5 ${chrome.editing ? 'cursor-pointer' : ''} ${dragClass(drag)}`}
     >
       {!chrome.editing && (
-        <AvatarRing style={note.color ? { background: skin.iconBackground, borderColor: skin.border } : undefined}>
+        <AvatarRing className="mt-[2px]" style={note.color ? { background: skin.iconBackground, borderColor: skin.border } : undefined}>
           <Icon size={14} strokeWidth={2} style={{ color: skin.iconColor }} />
         </AvatarRing>
       )}
@@ -558,20 +586,20 @@ export function NoteRow({ note, chrome, reorder, drag, onEdit }: {
         className="min-w-0 flex-1 rounded-[13px] border px-[11px] py-[7px]"
         style={{ borderColor: skin.border, background: note.color ? skin.background : 'var(--m-ic)' }}
       >
-        <div className="flex items-center gap-1.5">
+        <div className="flex min-w-0 items-start gap-1.5">
           {time && <span className={TIME_CHIP}>{time}</span>}
-          <span className="min-w-0 text-[0.875rem] font-semibold">{title}</span>
+          <span className="min-w-0 text-[0.875rem] [overflow-wrap:anywhere] font-semibold">{title}</span>
         </div>
         {titleExtra && (
-          <div className="mt-px font-geist text-[0.71875rem] leading-[1.4] text-m-muted">{titleExtra}</div>
+          <MarkdownText className="mt-px font-geist text-[0.71875rem] leading-[1.4] text-m-muted">{titleExtra}</MarkdownText>
         )}
         {detail && (
           // Rendered, not raw: a note written with the formatting bar would
           // otherwise read as `**asterisks**` on the phone.
-          <MarkdownText className="mt-px font-geist text-[0.71875rem] leading-[1.45] text-m-muted [overflow-wrap:anywhere]">{detail}</MarkdownText>
+          <MarkdownText className="mt-px font-geist text-[0.71875rem] leading-[1.45] text-m-muted">{detail}</MarkdownText>
         )}
       </div>
-      {chrome.editing && <span className="flex flex-none items-center gap-1.5">{reorder}</span>}
+      {chrome.editing && <span className="mt-[2px] flex flex-none items-center gap-1.5">{reorder}</span>}
     </div>
   )
 }

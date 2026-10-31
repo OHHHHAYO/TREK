@@ -23,6 +23,10 @@ const collab: TranslationStrings = {
   'collab.links.pin': '링크 고정',
   'collab.links.unpin': '링크 고정 해제',
   'collab.links.delete': '링크 삭제',
+  'collab.links.edit': '링크 편집',
+  'collab.links.open': '링크 열기',
+  'collab.links.confirmDeleteTitle': '링크를 삭제할까요?',
+  'collab.links.confirmDeleteBody': '이 링크는 영구적으로 삭제됩니다.',
   'collab.whatsNext.title': '다음 할 일',
   'collab.whatsNext.today': '오늘',
   'collab.whatsNext.tomorrow': '내일',
@@ -85,7 +89,6 @@ const collab: TranslationStrings = {
   'collab.polls.close': '닫기',
   'collab.polls.closed': '종료됨',
   'collab.polls.votes': '{n}표',
-  'collab.polls.vote': '{n}표',
   'collab.polls.multipleChoice': '복수 선택',
   'collab.polls.multiChoice': '복수 선택',
   'collab.polls.deadline': '마감일',
@@ -93,10 +96,16 @@ const collab: TranslationStrings = {
   'collab.polls.options': '옵션',
   'collab.polls.delete': '삭제',
   'collab.polls.closedSection': '종료됨',
-  'collab.chat.imageLimit': '메시지당 최대 {max}장의 이미지를 첨부할 수 있습니다',
+  'collab.chat.imageLimit': '메시지당 최대 {count}장의 이미지를 첨부할 수 있습니다',
   'collab.chat.uploading': '업로드 중 {percent}%',
   'collab.chat.attachImages': '이미지 첨부',
   'collab.chat.attachedImage': '첨부된 이미지',
   'collab.chat.closeImage': '이미지 닫기',
+  'collab.notes.categoryInUse':
+    '이 카테고리를 쓰는 노트가 아직 있습니다. 먼저 노트를 옮기거나 삭제해야 카테고리를 지울 수 있습니다.',
+  'collab.notes.categoriesLocalHint':
+    '노트가 없는 카테고리는 이 브라우저에만 저장됩니다. 노트에서 사용하면 다른 멤버에게도 보입니다.',
+  'collab.chat.fromAssistant': '어시스턴트 답변',
+  'collab.chat.fromAssistantHint': '{name}님이 어시스턴트의 답변을 공유했습니다',
 };
 export default collab;

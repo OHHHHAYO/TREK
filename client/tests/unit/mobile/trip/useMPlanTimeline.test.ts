@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { WeatherResult } from '@trek/shared'
-import { assignmentsApi, reservationsApi, weatherApi } from '../../../../src/api/client'
+import { assignmentsApi, weatherApi } from '../../../../src/api/client'
 import { useMPlanTimeline } from '../../../../src/mobile/screens/trip/plan/useMPlanTimeline'
 import type { TransportEntry } from '../../../../src/mobile/screens/trip/plan/planTimelineModel'
 import type { TripPlanner } from '../../../../src/mobile/screens/trip/MTripShell'
@@ -12,7 +12,7 @@ import { buildPlanner, buildTripActions } from '../../../helpers/mobileTrip'
 import { resetAllStores, seedStore } from '../../../helpers/store'
 import { act, renderHook, waitFor } from '../../../helpers/render'
 
-// FE-MOB-PLTL-001 to FE-MOB-PLTL-045
+// FE-MOB-PLTL-001 to FE-MOB-PLTL-052
 
 // The connector calculation is its own hook with real OSRM calls — stubbed here so
 // the timeline sees exactly the legs a test wants to match against.
@@ -94,7 +94,6 @@ describe('useMPlanTimeline', () => {
     routeCalc.segments = []
     vi.spyOn(weatherApi, 'get').mockResolvedValue(FORECAST)
     vi.spyOn(assignmentsApi, 'updateTransport').mockResolvedValue({})
-    vi.spyOn(reservationsApi, 'updatePositions').mockResolvedValue({})
     vi.spyOn(window, 'open').mockImplementation(() => null)
   })
 
@@ -126,8 +125,9 @@ describe('useMPlanTimeline', () => {
   })
 
   it('FE-MOB-PLTL-004: exposes the hotel bookend legs and header chips', async () => {
-    const out = seg([48, 16.05], [48, 16.1])
-    const back = seg([48, 16.2], [48, 16.05])
+    // The route calculation tags the two bookends it drew (#2501).
+    const out: RouteSegment = { ...seg([48, 16.05], [48, 16.1]), hotelBookend: 'morning' }
+    const back: RouteSegment = { ...seg([48, 16.2], [48, 16.05]), hotelBookend: 'evening' }
     routeCalc.segments = [out, back]
     const { result } = await renderTimeline(makePlanner({ tripAccommodations: [HOTEL] }))
     expect(result.current.hotelLegs.top?.seg).toBe(out)
@@ -275,7 +275,8 @@ describe('useMPlanTimeline', () => {
     const { result } = await renderTimeline(planner)
     await act(async () => { result.current.moveRow(result.current.merged[0], 'down') })
     await waitFor(() => expect(planner.tripActions.reorderAssignments).toHaveBeenCalledWith(1, 2, [12, 11, 13]))
-    expect(planner.pushUndo).toHaveBeenCalledWith('undo.reorder', expect.any(Function))
+    // Tied to the day and its places, so deleting either drops a step that could only fail.
+    expect(planner.pushUndo).toHaveBeenCalledWith('undo.reorder', expect.any(Function), [2], expect.arrayContaining([101, 102, 103]))
     expect(planner.updateRouteForDay).toHaveBeenCalledWith(2)
   })
 
@@ -350,7 +351,7 @@ describe('useMPlanTimeline', () => {
 
     await act(async () => { result.current.moveRow(result.current.merged[3], 'up') })
 
-    await waitFor(() => expect(reservationsApi.updatePositions).toHaveBeenCalledWith(
+    await waitFor(() => expect(planner.tripActions.updateReservationPositions).toHaveBeenCalledWith(
       1, [{ id: 51, day_plan_position: 2 / 3 }], 2,
     ))
     expect(planner.tripActions.reorderAssignments).toHaveBeenCalledWith(1, 2, [11, 12])
@@ -431,7 +432,7 @@ describe('useMPlanTimeline', () => {
 
     await act(async () => { result.current.moveRow(result.current.merged[2], 'up') })
 
-    await waitFor(() => expect(reservationsApi.updatePositions).toHaveBeenCalledWith(
+    await waitFor(() => expect(planner.tripActions.updateReservationPositions).toHaveBeenCalledWith(
       1, [{ id: 51, day_plan_position: 0.5 }], 2,
     ))
     // Only the moved booking gains a per-day position; the other day's booking is untouched.
@@ -548,7 +549,7 @@ describe('useMPlanTimeline', () => {
     const { result } = await renderTimeline(planner)
     await act(async () => { await result.current.optimize() })
     expect(planner.tripActions.reorderAssignments).toHaveBeenCalledWith(1, 2, [11, 13, 12])
-    expect(planner.pushUndo).toHaveBeenCalledWith('undo.optimize', expect.any(Function))
+    expect(planner.pushUndo).toHaveBeenCalledWith('undo.optimize', expect.any(Function), [2], expect.arrayContaining([101, 102, 103]))
     expect(planner.updateRouteForDay).toHaveBeenCalledWith(2)
     expect(planner.toast.success).toHaveBeenCalledWith('dayplan.toast.routeOptimized')
 
@@ -604,6 +605,47 @@ describe('useMPlanTimeline', () => {
     expect(window.open).not.toHaveBeenCalled()
   })
 
+  it('FE-MOB-PLTL-050: a moving day that only holds its flight has no route to export (#2476)', async () => {
+    // Day 2 checks out of one hotel and into another, the flight in between saved
+    // without its airports. The exports used to open a drive between the two hotels.
+    const stays = [
+      { ...HOTEL, id: 72, start_day_id: 1, end_day_id: 2, place_name: 'Hotel A' },
+      { ...HOTEL, id: 73, start_day_id: 2, end_day_id: 3, place_name: 'Hotel B', place_lat: 53.55, place_lng: 9.99 },
+    ] as Accommodation[]
+    const flight = buildReservation({ id: 77, type: 'flight', title: 'LH 2078', day_id: 2, end_day_id: 2, reservation_time: '2026-05-02T15:15' })
+    const { result } = await renderTimeline(makePlanner({ assignments: {}, reservations: [flight], tripAccommodations: stays }))
+    expect(result.current.canExportRoute).toBe(false)
+    act(() => { result.current.exportGoogleMaps() })
+    act(() => { result.current.exportCoMaps() })
+    expect(window.open).not.toHaveBeenCalled()
+
+    // The same day without the booking is a drive from one hotel to the other.
+    const byRoad = await renderTimeline(makePlanner({ assignments: {}, reservations: [], tripAccommodations: stays }))
+    expect(byRoad.result.current.canExportRoute).toBe(true)
+    act(() => { byRoad.result.current.exportGoogleMaps() })
+    expect(window.open).toHaveBeenCalledWith(
+      'https://www.google.com/maps/dir/48,16.05/53.55,9.99', '_blank', 'noopener,noreferrer',
+    )
+  })
+
+  it('FE-MOB-PLTL-051: a day with a single stop still offers the hand-offs, which open that stop as a pin', async () => {
+    // No stay in TREK: one sight is the whole export. The #2476 gate only drops a day
+    // with nothing to hand over, not one that opens a pin to navigate to.
+    const { result } = await renderTimeline(makePlanner({ assignments: { '2': [A_MUSEUM] } }))
+    expect(result.current.canExportRoute).toBe(true)
+    act(() => { result.current.exportGoogleMaps() })
+    expect(window.open).toHaveBeenCalledWith(
+      'https://www.google.com/maps/search/?api=1&query=48,16.1', '_blank', 'noopener,noreferrer',
+    )
+
+    const vague = buildAssignment({
+      id: 15, day_id: 2, order_index: 0, place_id: 105,
+      place: buildPlace({ id: 105, name: 'Idea', lat: null, lng: null }),
+    })
+    const nothing = await renderTimeline(makePlanner({ assignments: { '2': [vague] } }))
+    expect(nothing.result.current.canExportRoute).toBe(false)
+  })
+
   it('FE-MOB-PLTL-039: renames the day with a trimmed title', async () => {
     const planner = makePlanner()
     const { result } = await renderTimeline(planner)
@@ -625,6 +667,7 @@ describe('useMPlanTimeline', () => {
     expect(result.current.routeModeOptions).toEqual([
       { key: 'driving', label: 'mobileTrip.profileDriving' },
       { key: 'walking', label: 'mobileTrip.profileWalking' },
+      { key: 'cycling', label: 'mobileTrip.profileCycling' },
       { key: 'plugin:ev/eco', label: 'Eco' },
       { key: 'plugin:ev/fast', label: 'Fast' },
     ])
@@ -635,7 +678,7 @@ describe('useMPlanTimeline', () => {
     const { result } = await renderTimeline(makePlanner())
     await act(async () => { result.current.setLegMode(11, 'walking') })
     expect(useTripStore.getState().assignments['2'].map(a => a.leg_transport_mode)).toEqual(['walking', undefined])
-    expect(assignmentsApi.updateTransport).toHaveBeenCalledWith(1, 11, 'walking')
+    await waitFor(() => expect(assignmentsApi.updateTransport).toHaveBeenCalledWith(1, 11, 'walking'))
   })
 
   it('FE-MOB-PLTL-042: reverts to the server state when the leg mode fails to save', async () => {
@@ -655,5 +698,18 @@ describe('useMPlanTimeline', () => {
     const { result } = await renderTimeline(planner)
     await act(async () => { result.current.setLegMode(11, 'driving') })
     await waitFor(() => expect(planner.toast.error).toHaveBeenCalledWith('common.unknownError'))
+  })
+
+  it('FE-MOB-PLTL-052: a booking pinned to a stop on another day shows at that stop only (#2604)', async () => {
+    const zoo = buildAssignment({ id: 31, day_id: 3, order_index: 0, place_id: 101, place: MUSEUM })
+    const tickets = buildReservation({ id: 80, type: 'event', title: 'Zoo tickets', day_id: 2, assignment_id: 31 })
+    const assignments = { '2': [A_MUSEUM], '3': [zoo] }
+    const ownDay = await renderTimeline(makePlanner({ assignments, reservations: [tickets] }))
+    expect(ownDay.result.current.rows.map(r => r.key)).toEqual(['pl-11'])
+    ownDay.unmount()
+
+    const stopDay = await renderTimeline(makePlanner({ assignments, reservations: [tickets], selectedDayId: 3 }))
+    const row = stopDay.result.current.rows.find(r => r.key === 'pl-31')
+    expect(row && row.kind === 'place' ? row.linkedReservations.map(r => r.id) : []).toEqual([80])
   })
 })

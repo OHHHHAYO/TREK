@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { dayColor } from '../Roadtrip/dayColors'
 import { dayRouteColor, planTripRoute, routeTrip, summariseTripRoute } from './tripRouteGeometry'
 import { buildAssignment, buildDay, buildPlace } from '../../../tests/helpers/factories'
-import type { AssignmentsMap, RouteSegment } from '../../types'
+import type { Accommodation, AssignmentsMap, Reservation, RouteSegment } from '../../types'
 
 vi.mock('./RouteCalculator', async (importActual) => {
   const actual = await importActual<typeof import('./RouteCalculator')>()
@@ -211,5 +211,47 @@ describe('tripRouteGeometry', () => {
     } finally {
       vi.useRealTimers()
     }
+  })
+
+  it('FE-MAP-TRG-012: the overview draws no drive between two stays on the day a flight connects them (#2476)', () => {
+    // Day 2 moves from a Munich hotel to a Hamburg one. The overview reads the same
+    // day plan as the map, so the flight saved without airports keeps the road off it.
+    const days = [1, 2, 3].map(n => buildDay({ id: n, day_number: n }))
+    const accommodations = [
+      { id: 1, trip_id: 1, place_lat: 48.137, place_lng: 11.575, start_day_id: 1, end_day_id: 2 },
+      { id: 2, trip_id: 1, place_lat: 53.551, place_lng: 9.993, start_day_id: 2, end_day_id: 3 },
+    ] as unknown as Accommodation[]
+    const flight = {
+      id: 80, trip_id: 1, type: 'flight', title: 'LH 2078', day_id: 2, end_day_id: 2,
+      reservation_time: '2026-11-04T15:15', reservation_end_time: '2026-11-04T17:20', endpoints: [],
+    } as unknown as Reservation
+    const moving = { days, assignments: {}, accommodations, optimizeFromAccommodation: true }
+
+    expect(planTripRoute({ ...moving, reservations: [flight] }, 'driving')).toEqual([])
+    // Without the booking the day is a drive from one hotel to the other, as before (#1297).
+    const byRoad = planTripRoute({ ...moving, reservations: [] }, 'driving')
+    expect(byRoad.map(d => d.day.id)).toEqual([2])
+  })
+
+  it('FE-MAP-TRG-013: a road picked in the road trip bends the overview and still counts as one leg (#2580)', async () => {
+    // A lodging row hides in the plan but counts in the stored list, so the via behind
+    // the first stop of day 1 is filed at 1.
+    const hotel = buildAssignment({ day_id: 1, order_index: -1, accommodation_id: 3, place: buildPlace({ lat: 48.8, lng: 2.3 }) })
+    const storedAssignments = { ...ASSIGNMENTS, '1': [hotel, ...ASSIGNMENTS['1']] }
+    const viasByDay = { 1: [{ id: 1, day_id: 1, after_order_index: 1, sequence: 0, lat: 48.95, lng: 2.6, created_at: '' }] }
+    vi.mocked(calculateRouteWithLegs).mockImplementation(async (points) => ({
+      coordinates: points.map(p => [p.lat, p.lng] as [number, number]),
+      distance: 0, duration: 0,
+      legs: points.slice(1).map(() => leg(10000)),
+    }))
+
+    const plan = planTripRoute({ ...input, storedAssignments, viasByDay }, 'driving')
+    expect(plan[0].runs[0][0].waypoints.map(p => p.lat)).toEqual([48.86, 48.95, 48.90])
+    expect(plan[1].runs[0][0].waypoints.map(p => p.lat)).toEqual([45.76, 45.80])
+
+    const summary = await routeTrip({ ...input, storedAssignments, viasByDay }, { profile: 'driving', tripId: 7, unit: 'metric' })
+    expect(summary.days[0].segments).toHaveLength(1)
+    expect(summary.days[0].distance).toBe(20000)
+    expect(summary.days[1].distance).toBe(10000)
   })
 })

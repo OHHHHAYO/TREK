@@ -22,6 +22,12 @@ vi.mock('react-router', async (importOriginal) => {
 
 vi.mock('@simplewebauthn/browser', () => ({ startRegistration: vi.fn() }));
 
+// Enabling or disabling MFA reloads the user, and loadUser registers the
+// background sync triggers: a 30 s heartbeat and window listeners that nothing
+// here unregisters, so they outlive the test and can fire, and log, while the
+// file's worker shuts down. Nothing here is about sync.
+vi.mock('../../../../src/sync/syncTriggers', () => ({ registerSyncTriggers: vi.fn(), unregisterSyncTriggers: vi.fn() }));
+
 const webauthn = startRegistration as unknown as ReturnType<typeof vi.fn>;
 
 const BACKUP_KEY = 'trek_mfa_backup_codes_pending';
@@ -379,12 +385,13 @@ describe('MSettingsAccount – MFA', () => {
     await screen.findByText('JBSWY3DPEHPK3PXP');
   }
 
-  it('FE-MOB-SETACC-023: demo mode replaces the controls with the demo notice', () => {
-    seedStore(useAuthStore, { demoMode: true });
+  it('FE-MOB-SETACC-023: the shared demo account sees the controls under the demo lock', () => {
+    seedStore(useAuthStore, { demoMode: true, user: buildUser({ email: 'demo@trek.app', mfa_enabled: false }) });
     renderAccount();
 
-    expect(screen.getByText('Not available in demo mode')).toBeInTheDocument();
+    expect(screen.getByRole('note')).toHaveTextContent('The shared demo account cannot be changed.');
     expect(screen.queryByRole('button', { name: 'Set up authenticator' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { hidden: true, name: 'Set up authenticator' })).toBeInTheDocument();
   });
 
   it('FE-MOB-SETACC-024: the ?mfa=required entry shows the policy banner', () => {
@@ -881,7 +888,7 @@ describe('MSettingsAccount – passkeys', () => {
 
     const second = screen.getByText('Passkey').closest('li') as HTMLElement;
     expect(within(second).getByText('This device')).toBeInTheDocument();
-    expect(second.textContent).toContain('Added: — · Never used');
+    expect(second.textContent).toContain('Added: —, Never used');
 
     // Empty timestamp and a full ISO timestamp both go through fmtDate.
     expect((screen.getByText('Yubikey').closest('li') as HTMLElement).textContent).toContain('Added: —');

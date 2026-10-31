@@ -7,6 +7,7 @@ import {
 import JournalBody from './JournalBody'
 import { useTranslation } from '../../i18n'
 import { formatLocationName } from '../../utils/formatters'
+import { posterlessVideo } from '../../pages/journeyDetail/JourneyDetailPage.helpers'
 import type { JourneyEntry, JourneyPhoto } from '../../store/journeyStore'
 
 // Labels are translation keys, like the desktop tables in
@@ -105,12 +106,18 @@ export default function MobileEntryView({ entry, readOnly, publicPhotoUrl, onClo
                 }`}
               onClick={() => onPhotoClick(photos, 0)}
             >
-              <img
-                src={photoUrl(photos[0], 'original', publicPhotoUrl)}
-                alt=""
-                className={`w-full max-h-[50vh] ${photos[0].media_type === 'video' ? 'object-contain' : 'object-cover'
-                  }`}
-              />
+              {/* A clip is drawn from its poster, its original being the video file.
+                  Without a poster the black ground and the play badge are the hero (#2341). */}
+              {posterlessVideo(photos[0]) ? (
+                <span className="block aspect-video w-full max-h-[50vh]" />
+              ) : (
+                <img
+                  src={photoUrl(photos[0], photos[0].media_type === 'video' ? 'thumbnail' : 'original', publicPhotoUrl)}
+                  alt=""
+                  className={`w-full max-h-[50vh] ${photos[0].media_type === 'video' ? 'object-contain' : 'object-cover'
+                    }`}
+                />
+              )}
 
               {photos[0].media_type === 'video' && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
@@ -122,7 +129,7 @@ export default function MobileEntryView({ entry, readOnly, publicPhotoUrl, onClo
             </button>
 
             {photos.length > 1 && (
-              <div className="absolute bottom-3 right-3 flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white rounded-full px-2.5 py-1 text-[11px] font-medium">
+              <div className="absolute bottom-3 end-3 flex items-center gap-1 bg-black/60 backdrop-blur-sm text-white rounded-full px-2.5 py-1 text-[11px] font-medium">
                 <Camera size={12} />
                 {t('mobileJourney.photosCount', { count: photos.length })}
               </div>
@@ -140,12 +147,14 @@ export default function MobileEntryView({ entry, readOnly, publicPhotoUrl, onClo
                       }`}
                     onClick={() => onPhotoClick(photos, i)}
                   >
-                    <img
-                      src={photoUrl(p, 'thumbnail', publicPhotoUrl)}
-                      alt=""
-                      className={`h-full w-full ${p.media_type === 'video' ? 'object-contain' : 'object-cover'
-                        }`}
-                    />
+                    {!posterlessVideo(p) && (
+                      <img
+                        src={photoUrl(p, 'thumbnail', publicPhotoUrl)}
+                        alt=""
+                        className={`h-full w-full ${p.media_type === 'video' ? 'object-contain' : 'object-cover'
+                          }`}
+                      />
+                    )}
 
                     {p.media_type === 'video' && (
                       <div className="pointer-events-none absolute inset-0 flex items-center justify-center">

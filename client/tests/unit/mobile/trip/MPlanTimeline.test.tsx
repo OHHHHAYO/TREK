@@ -9,7 +9,7 @@ import type { MergedItem } from '../../../../src/utils/dayMerge'
 import type { Assignment, Day, DayNote, Place, RouteSegment } from '../../../../src/types'
 import MPlanTimeline from '../../../../src/mobile/screens/trip/plan/MPlanTimeline'
 
-// FE-MOB-PLTL-001 to FE-MOB-PLTL-047
+// FE-MOB-PLTL-001 to FE-MOB-PLTL-049
 
 const mocks = vi.hoisted(() => ({
   tl: {} as Record<string, unknown>,
@@ -110,7 +110,9 @@ function buildTl(over: Record<string, unknown> = {}): MPlanTimelineController {
     addBooking: vi.fn(),
     addTransport: vi.fn(),
     optimize: vi.fn(async () => undefined),
+    canExportRoute: true,
     exportGoogleMaps: vi.fn(),
+    exportCoMaps: vi.fn(),
     renameDay: vi.fn(),
     fullPlaceOf: vi.fn(() => undefined as Place | undefined),
     routeModeOptions: [
@@ -121,6 +123,8 @@ function buildTl(over: Record<string, unknown> = {}): MPlanTimelineController {
     setLegMode: vi.fn(),
     transitLegFor: vi.fn(() => null),
     planTransitLeg: vi.fn(),
+    journeyLate: vi.fn(() => null),
+    tourOverrun: vi.fn(() => null),
     ...over,
   } as unknown as MPlanTimelineController
 }
@@ -329,6 +333,13 @@ describe('MPlanTimeline', () => {
       expect(screen.getByText('transit.min:15')).toBeInTheDocument()
     })
 
+    it('FE-MOB-PLTL-014b: a transit row says when it now arrives after the next city walk starts (CW-08)', () => {
+      renderTimeline({ journeyLate: vi.fn(() => ({ walk: 'Harbour', time: '13:00' })) })
+
+      expect(mocks.tl.journeyLate).toHaveBeenCalledWith(expect.objectContaining({ type: 'transport' }))
+      expect(screen.getByTestId('transit-walk-late')).toBeInTheDocument()
+    })
+
     it('FE-MOB-PLTL-015: a note row opens the note sheet with its note in edit mode', () => {
       const { shell } = renderTimeline({}, {}, { mode: 'edit' })
 
@@ -353,6 +364,41 @@ describe('MPlanTimeline', () => {
 
       expect(mocks.tl.moveRow).toHaveBeenNthCalledWith(1, M_PLACE, 'down')
       expect(mocks.tl.moveRow).toHaveBeenNthCalledWith(2, M_PLACE2, 'up')
+    })
+  })
+
+  describe('Tours read-only timeline integration', () => {
+    const tour = { ...MUSEUM, id: 91, place_id: 901,
+      place: { ...MUSEUM.place, id: 901, name: 'Assigned Tour' }, tour_place_id: 901 } as Assignment
+    const item: MergedItem = { type: 'place', sortKey: 0, data: tour }
+    const row: PlanRow = { key: 'pl-91', kind: 'place', item, assignment: tour, linkedReservations: [], invalidTour: true }
+
+    it('shows one localized invalid-endpoint warning and selects the Tour through the shared Place path', () => {
+      const { planner } = renderTimeline({ rows: [row], merged: [item], upNext: null }, { toursEnabled: true, tours: [] })
+
+      expect(screen.getAllByText('tours.dayRoute.endpointUnknown')).toHaveLength(1)
+      fireEvent.click(screen.getByText('Assigned Tour'))
+      expect(planner.handlePlaceClick).toHaveBeenCalledWith(901, 91)
+      expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+      expect(screen.queryByText('tour-planner')).not.toBeInTheDocument()
+    })
+
+    it('does not show the warning for valid status or with Tours disabled', () => {
+      const validRow: PlanRow = { ...row, invalidTour: false }
+      const first = renderTimeline({ rows: [validRow], merged: [item], upNext: null }, { toursEnabled: true, tours: [] })
+      expect(screen.queryByText('tours.dayRoute.endpointUnknown')).not.toBeInTheDocument()
+      first.unmount()
+
+      renderTimeline({ rows: [row], merged: [item], upNext: null }, { toursEnabled: false })
+      expect(screen.queryByText('tours.dayRoute.endpointUnknown')).not.toBeInTheDocument()
+    })
+
+    it('TIME-02-020: a tour row says when its end runs into the next timed item, read from the shared timeline logic', () => {
+      const validRow: PlanRow = { ...row, invalidTour: false }
+      const tourOverrun = vi.fn(() => ({ name: 'Lunch', time: '12:00', end: '13:00' }))
+      renderTimeline({ rows: [validRow], merged: [item], upNext: null, tourOverrun }, { toursEnabled: true, tours: [] })
+      expect(tourOverrun).toHaveBeenCalledWith(item)
+      expect(screen.getByTestId('tour-day-overrun')).toBeInTheDocument()
     })
   })
 
@@ -398,7 +444,7 @@ describe('MPlanTimeline', () => {
       expect(mocks.tl.transitLegFor).toHaveBeenCalledWith(SEG)
       fireEvent.click(screen.getByText('transit.title'))
 
-      expect(mocks.tl.planTransitLeg).toHaveBeenCalledWith(leg)
+      expect(mocks.tl.planTransitLeg).toHaveBeenCalledWith(leg, 11)
       expect(mocks.tl.setLegMode).not.toHaveBeenCalled()
     })
 
@@ -583,6 +629,16 @@ describe('MPlanTimeline', () => {
       expect(mocks.tl.exportGoogleMaps).toHaveBeenCalledTimes(1)
     })
 
+    it('FE-MOB-PLTL-049: a day with no route to hand over offers no Google Maps or CoMaps tile (#2476)', () => {
+      // A moving day whose only content is the flight: the export would be a drive
+      // from one hotel to the other, so the two tiles are left out, not left dead.
+      renderTimeline({ canExportRoute: false }, {}, { mode: 'edit' })
+
+      expect(screen.queryByText('mobileTrip.googleMaps')).not.toBeInTheDocument()
+      expect(screen.queryByText('mobileTrip.coMaps')).not.toBeInTheDocument()
+      expect(screen.getByText('dayplan.optimize')).toBeInTheDocument()
+    })
+
     it('FE-MOB-PLTL-034: the note tile is inert while no day is selected', () => {
       const { shell } = renderTimeline({ day: undefined, rows: [], merged: [] }, {}, { mode: 'edit' })
 
@@ -620,6 +676,19 @@ describe('MPlanTimeline', () => {
 
       expect(mocks.tl.editAssignment).toHaveBeenCalledWith(MUSEUM)
       expect(mocks.tl.removeAssignment).toHaveBeenCalledWith(MUSEUM)
+    })
+
+    it('FE-MOB-PLTL-048: without place_edit a place row keeps remove and reorder but loses its edit circle (#2446)', () => {
+      renderTimeline({}, { can: vi.fn((action: string) => action !== 'place_edit') as TripPlanner['can'] }, { mode: 'edit' })
+
+      // the place row keeps its remove circle and loses the edit one; the
+      // transport and note rows keep theirs, editing those is a day right
+      const row = screen.getByText('Museum').closest('[role="button"]') as HTMLElement
+      expect(within(row).getByLabelText('planner.removeFromDay')).toBeInTheDocument()
+      expect(within(row).queryByLabelText('common.edit')).not.toBeInTheDocument()
+      fireEvent.click(within(row).getByLabelText('planner.removeFromDay'))
+      expect(mocks.tl.removeAssignment).toHaveBeenCalledWith(MUSEUM)
+      expect(mocks.tl.editAssignment).not.toHaveBeenCalled()
     })
 
     it('FE-MOB-PLTL-037: the transit row opens the journey view from its edit circle', () => {

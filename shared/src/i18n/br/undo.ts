@@ -5,11 +5,12 @@ const undo: TranslationStrings = {
   'undo.tooltip': 'Desfazer: {action}',
   'undo.assignPlace': 'Local atribuído ao dia',
   'undo.removeAssignment': 'Local removido do dia',
+  'undo.clearDay': 'Dia limpo',
   'undo.reorder': 'Locais reordenados',
   'undo.optimize': 'Rota otimizada',
   'undo.deletePlace': 'Local excluído',
   'undo.deletePlaces': 'Lugares excluídos',
-  'undo.changeCategory': 'Category changed',
+  'undo.changeCategory': 'Categoria alterada',
   'undo.moveDay': 'Local movido para outro dia',
   'undo.lock': 'Bloqueio do local alternado',
   'undo.importGpx': 'Importação de GPX',
@@ -19,6 +20,7 @@ const undo: TranslationStrings = {
   'undo.importNaverList': 'Importação do Naver Maps',
   'undo.addPlace': 'Local adicionado',
   'undo.done': 'Desfeito: {action}',
+  'undo.failed': 'Não foi possível desfazer: {action}',
   'undo.importBooking': 'Importação de confirmação de reserva',
 };
 export default undo;

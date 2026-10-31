@@ -1,9 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
-import { AlertCircle, ArrowRight, Check, Loader2, Plus } from 'lucide-react'
-import Modal from '../../shared/Modal'
+import { useEffect, useId, useMemo, useState } from 'react'
+import { AlertCircle, ArrowRight, Check, FolderSync, Loader2, Plus } from 'lucide-react'
+import { DialogHeader, DialogShell, DialogTile, NEUTRAL_TINT } from '../../shared/DialogShell'
 import { useTranslation } from '../../../i18n/TranslationContext'
-import { DOCUMENT_PROVIDER_ICONS } from '../../shared/DocumentProviderIcons'
+import { DOCUMENT_PROVIDER_ICONS } from '../../shared/documentProviderIconMap'
 import { StateBadge } from './DocSyncBits'
+import { slugFor } from './docSyncModel'
 import { useConflicts } from './useConflicts'
 import { storeName, useDocSync, type DocSyncLink, type DocSyncProvider } from './useDocSync'
 import DocSyncBinding from './DocSyncBinding'
@@ -54,28 +55,37 @@ export default function DocSyncPanel({
   const activeProvider = active ? sync.providers.find(p => p.id === active.providerId) : undefined
 
   // Follow the list: a freshly bound store should be the one on screen, and a
-  // removed one must not leave the detail column pointing at nothing.
+  // removed one must not leave the detail column pointing at nothing. The pick
+  // is read when the update runs, not from this render: a store clicked before
+  // the effect got its turn was otherwise switched straight back.
   useEffect(() => {
-    if (sync.links.length === 0) setSelected(null)
-    else if (!sync.links.some(l => l.id === selected)) setSelected(sync.links[0].id)
-  }, [sync.links, selected])
+    setSelected(prev => (sync.links.some(l => l.id === prev) ? prev : (sync.links[0]?.id ?? null)))
+  }, [sync.links])
+
+  // The connection behind the folder picker, which the picker can send back to.
+  const scopeProvider = scopeFor ? sync.providers.find(p => p.id === scopeFor) : undefined
 
   const attention = ATTENTION_STATES.reduce((n, k) => n + (sync.itemCounts[k] ?? 0), 0)
+  const labelId = useId()
 
   return (
     <>
-      <Modal
-        isOpen
+      <DialogShell
         onClose={onClose}
-        size="4xl"
-        title={
-          <span className="flex flex-col">
-            <span>{t('docsync.title')}</span>
-            {tripTitle && (
-              <span className="mt-0.5 truncate text-caption font-normal text-content-muted">{tripTitle}</span>
-            )}
-          </span>
-        }
+        labelledBy={labelId}
+        width="wide"
+        // A connect or scope question opened from here takes Escape for itself.
+        blocked={!!connecting || !!scopeFor || !!reconnecting}
+        header={(
+          <DialogHeader
+            tile={<DialogTile><FolderSync size={20} strokeWidth={1.9} className="text-content-muted" /></DialogTile>}
+            tint={NEUTRAL_TINT}
+            labelId={labelId}
+            onClose={onClose}
+            title={t('docsync.title')}
+            sub={tripTitle || undefined}
+          />
+        )}
       >
         {sync.loading ? (
           <div className="grid place-items-center py-20">
@@ -97,7 +107,7 @@ export default function DocSyncPanel({
               onAdd={p => (sync.connectionFor(p.id) ? setScopeFor(p.id) : setConnecting(p))}
             />
 
-            <div className="min-w-0 md:border-l md:border-edge-faint md:pl-6">
+            <div className="min-w-0 md:border-s md:border-edge-faint md:ps-6">
               {active ? (
                 <div className="space-y-5">
                   <DocSyncBinding
@@ -106,6 +116,7 @@ export default function DocSyncPanel({
                     sync={sync}
                     canManage={canManage}
                     onReconnect={activeProvider ? () => setReconnecting(activeProvider) : undefined}
+                    onEditConnection={canManage && activeProvider ? () => setReconnecting(activeProvider) : undefined}
                   />
                   {/* Every action in this column reports here: a refused run, a
                       switch that flipped back, a conflict the server would not
@@ -126,7 +137,7 @@ export default function DocSyncPanel({
             </div>
           </div>
         )}
-      </Modal>
+      </DialogShell>
 
       {connecting && (
         <DocSyncConnectModal
@@ -134,6 +145,7 @@ export default function DocSyncPanel({
           sync={sync}
           onClose={() => setConnecting(null)}
           onConnected={id => { setConnecting(null); setScopeFor(id) }}
+          onRemoved={() => setConnecting(null)}
         />
       )}
 
@@ -142,6 +154,7 @@ export default function DocSyncPanel({
           provider={reconnecting}
           sync={sync}
           onClose={() => setReconnecting(null)}
+          onRemoved={() => setReconnecting(null)}
           onConnected={id => {
             setReconnecting(null)
             // Run straight away, as binding does: the card still reports the
@@ -161,6 +174,7 @@ export default function DocSyncPanel({
           sync={sync}
           onClose={() => setScopeFor(null)}
           onBound={() => setScopeFor(null)}
+          onEditConnection={scopeProvider ? () => { setScopeFor(null); setConnecting(scopeProvider) } : undefined}
         />
       )}
     </>
@@ -266,7 +280,7 @@ function StoreButton({
       onClick={onClick}
       aria-current={active ? 'true' : undefined}
       className={[
-        'group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-left transition-colors',
+        'group flex w-full items-center gap-3 rounded-xl border px-3 py-2.5 text-start transition-colors',
         active
           ? 'border-transparent bg-accent-subtle'
           : 'border-edge bg-surface hover:bg-surface-hover',
@@ -409,20 +423,4 @@ function Empty() {
       <p className="mx-auto mt-1 max-w-sm text-caption text-content-muted">{t('docsync.noProvidersHint')}</p>
     </div>
   )
-}
-
-/**
- * A folder name from the trip's own title, so nobody has to invent one.
- *
- * The id is appended because two trips can share a title and a folder cannot.
- */
-function slugFor(title: string | undefined, tripId: number | string): string {
-  const base = (title || 'trek')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-  return `${base || 'trek'}-${tripId}`
 }

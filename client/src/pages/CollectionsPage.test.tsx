@@ -25,7 +25,13 @@ vi.mock('../components/Collections/CollectionFilterBar', () => ({
       ? <button type="button" onClick={props.onAddPlace}>collections.addPlace</button>
       : <div />,
 }))
-vi.mock('../components/Collections/CollectionMapPanel', () => ({ default: () => <div data-testid="map" /> }))
+const mapPanelProps = vi.hoisted(() => ({ current: null as null | { onSelect: (id: number) => void; onDeselect: () => void } }))
+vi.mock('../components/Collections/CollectionMapPanel', () => ({
+  default: (props: { onSelect: (id: number) => void; onDeselect: () => void }) => {
+    mapPanelProps.current = props
+    return <div data-testid="map" />
+  },
+}))
 vi.mock('../components/Collections/CopyToTripModal', () => ({ default: () => null }))
 vi.mock('../components/Collections/MoveToListModal', () => ({ default: () => null }))
 vi.mock('../components/Collections/ShareCollectionModal', () => ({ default: () => null }))
@@ -56,6 +62,7 @@ function makeHook(overrides: Record<string, unknown> = {}) {
     categories: [],
     collections: [{ id: 1, name: 'Test', is_owner: true }],
     ownedLists: [{ id: 1, name: 'Test', is_owner: true }],
+    writableLists: [{ id: 1, name: 'Test', is_owner: true }],
     sharedLists: [],
     activeCollection: { id: 1, name: 'Test', is_owner: true, color: '#6366f1' },
     isAllSaved: false,
@@ -72,6 +79,8 @@ function makeHook(overrides: Record<string, unknown> = {}) {
     hasMappable: true,
     members: [],
     incomingInvites: [],
+    orderedInvites: [],
+    routeInvite: null,
     counts: { all: 1, idea: 0, want: 1, visited: 0 },
     view: 'list',
     statusFilter: 'all',
@@ -145,5 +154,63 @@ describe('CollectionsPage — the map survives a filter that matches nothing', (
     mockUseCollections.mockReturnValue(makeHook({ mappable: [], hasMappable: false }))
     render(<CollectionsPage />)
     expect(screen.queryByTestId('map')).toBeNull()
+  })
+})
+
+describe('CollectionsPage: a marker click shows the place (#2431)', () => {
+  it('selects the place a marker stands for, even when that place is already selected', () => {
+    const setSelectedPlaceId = vi.fn()
+    mockUseCollections.mockReturnValue(makeHook({ selectedPlaceId: 10, setSelectedPlaceId }))
+    render(<CollectionsPage />)
+    // A second click on the marker of the open place used to toggle it away, which
+    // read as the details refusing to open. The map background is what clears.
+    mapPanelProps.current!.onSelect(10)
+    expect(setSelectedPlaceId).toHaveBeenLastCalledWith(10)
+    mapPanelProps.current!.onDeselect()
+    expect(setSelectedPlaceId).toHaveBeenLastCalledWith(null)
+  })
+})
+
+// #2645: the rail is hidden below 1080px and an invitee with no lists of their
+// own saw only "Start your first collection", so the invites the person has to
+// answer also sit at the top of the body.
+describe('CollectionsPage: invites in the body (#2645)', () => {
+  const invite = { collection_id: 14, name: 'Lisbon', from: { id: 4, username: 'Lena' } }
+  const other = { collection_id: 3, name: 'Rome', from: { id: 5, username: 'Tom' } }
+  const noLists = {
+    collections: [], ownedLists: [], activeCollection: null, activeId: null,
+    places: [], visiblePlaces: [], mappable: [], hasMappable: false, canShare: false,
+  }
+
+  it('with no lists of their own, every invite can be answered from the body', () => {
+    const handleAcceptInvite = vi.fn()
+    const handleDeclineInvite = vi.fn()
+    mockUseCollections.mockReturnValue(makeHook({
+      ...noLists, incomingInvites: [invite, other], orderedInvites: [invite, other],
+      handleAcceptInvite, handleDeclineInvite,
+    }))
+    render(<CollectionsPage />)
+    expect(screen.getByText('Lisbon')).toBeInTheDocument()
+    expect(screen.getByText('Rome')).toBeInTheDocument()
+    expect(screen.getByText('collections.empty.firstTitle')).toBeInTheDocument()
+    screen.getAllByRole('button', { name: 'collections.invites.accept' })[0].click()
+    expect(handleAcceptInvite).toHaveBeenCalledWith(14)
+    screen.getAllByRole('button', { name: 'collections.invites.decline' })[1].click()
+    expect(handleDeclineInvite).toHaveBeenCalledWith(3)
+  })
+
+  it('with lists, only the invite the route points at is shown in the body', () => {
+    mockUseCollections.mockReturnValue(makeHook({
+      incomingInvites: [other, invite], orderedInvites: [invite, other], routeInvite: invite,
+    }))
+    render(<CollectionsPage />)
+    expect(screen.getByText('Lisbon')).toBeInTheDocument()
+    expect(screen.queryByText('Rome')).not.toBeInTheDocument()
+  })
+
+  it('with lists and no invite on the route, the body leaves invites to the rail', () => {
+    mockUseCollections.mockReturnValue(makeHook({ incomingInvites: [invite], orderedInvites: [invite] }))
+    render(<CollectionsPage />)
+    expect(screen.queryByRole('button', { name: 'collections.invites.accept' })).not.toBeInTheDocument()
   })
 })

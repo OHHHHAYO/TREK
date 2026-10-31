@@ -8,21 +8,25 @@ Invite new users to register on your TREK instance, even when open registration 
 
 An invite link lets a person register a new TREK account without requiring the site to have open registration enabled. Visiting `/register?invite=<token>` pre-validates the token and switches the page to the Register form. The token's use count is incremented on successful registration, and the link stops working once the use limit is reached.
 
-> Invite links here are for **registering new accounts**. To let people who *already* have an account join a specific trip, use the trip invite link in the trip's Share panel — see [Trip-Members-and-Sharing](Trip-Members-and-Sharing).
+> Invite links here are for **registering new accounts**. To let people who *already* have an account join a specific trip, use the trip invite link in the **Sharing** area of the trip's **Trip settings** (see [Trip-Members-and-Sharing](Trip-Members-and-Sharing)).
 
 ## Creating invite links
 
 > **Admin:** invite link management is available in [Admin-Users-and-Invites](Admin-Users-and-Invites). Only admins can create invite links.
 
-When creating an invite link you set two parameters:
+Invite links live in the **Invite Links** card under **Admin > Users**. Click **Create Link** and set:
 
-**Max uses** — how many times the link can be used to register an account. Choose from preset buttons: **1×, 2×, 3×, 4×, 5×**, or **∞** (unlimited).
+**Max. Uses**: how many times the link can be used to register an account. Choose from preset buttons: **1×, 2×, 3×, 4×, 5×**, or **∞** (unlimited).
 
-**Expiry** — how long until the link stops working. Choose from preset buttons: **1d, 3d, 7d, 14d**, or **∞** (no expiry).
+**Expires after**: how long until the link stops working. Choose from preset buttons: **1d, 3d, 7d, 14d**, or **∞** (no expiry).
 
-**Add to trip (optional)** — bind the invite to any trip on the instance, not just your own. When someone registers through the link, they are automatically added to that trip as a member. Leave it on **No trip** for a plain registration invite. The selector only appears when at least one trip exists.
+**Add to trip (optional)**: bind the invite to any trip on the instance, not just your own. When someone registers through the link, they are automatically added to that trip as a member. Leave it on **No trip** for a plain registration invite. The selector only appears when at least one trip exists.
 
-Once created, a 32-character hexadecimal token is generated and the URL is automatically copied to your clipboard.
+![Create Link dialog with the Max. Uses and Expires after presets and a trip picked under Add to trip (optional)](assets/InviteLinkForm.png)
+
+**Create & Copy** generates a 32-character hexadecimal token and copies the URL to your clipboard.
+
+Each link in the list shows whether it is **Active**, **Expired** or **Used up**, how often it was used out of its limit, when it expires, the trip it adds to, and who created it. The copy button (**Copy link**) copies its URL again.
 
 ## Sharing the link
 

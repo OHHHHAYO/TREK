@@ -8,12 +8,14 @@ import { buildPlace } from '../../../tests/helpers/factories'
 import { server } from '../../../tests/helpers/msw/server'
 import { useSettingsStore } from '../../store/settingsStore'
 import { useAuthStore } from '../../store/authStore'
-import maplibregl from 'maplibre-gl'
+import * as maplibregl from 'maplibre-gl'
 import { DEFAULT_MAP_ZOOM } from '../../constants/mapDefaults'
 import { MAP_LAYER_SWITCHER_INSET } from './MapLayerSwitcher'
 import type { GeoPosition, TrackingMode } from '../../hooks/useGeolocation'
 import type { PluginMapLayer, PluginMapLayerFeature, PluginMapMarker } from '../../api/client'
 import type { Poi } from './poiCategories'
+import { Coffee, type LucideIcon } from 'lucide-react'
+import { renderIconMarkup } from '../../utils/iconMarkup'
 import type { RouteVia } from '../../types'
 
 // Stable fake map so fitBounds call counts survive re-renders. The canvas
@@ -29,6 +31,7 @@ const glMap = vi.hoisted(() => ({
   flyTo: vi.fn(),
   jumpTo: vi.fn(),
   getZoom: vi.fn().mockReturnValue(10),
+  getCenter: vi.fn(() => ({ lng: 0, lat: 0 })),
   addControl: vi.fn(),
   removeControl: vi.fn(),
   remove: vi.fn(),
@@ -153,22 +156,21 @@ vi.mock('mapbox-gl', () => ({
 }))
 vi.mock('mapbox-gl/dist/mapbox-gl.css', () => ({}))
 
+// maplibre-gl 6 has no default export, so the fakes are named exports.
 vi.mock('maplibre-gl', () => ({
-  default: {
-    Map: vi.fn(function () {
-      return glMap
-    }),
-    Marker: vi.fn(function (opts?: { element?: HTMLElement }) {
-      return glMarkers.make(opts)
-    }),
-    LngLatBounds: vi.fn(function () {
-      return glBounds.create()
-    }),
-    NavigationControl: vi.fn(),
-    Popup: vi.fn(function () {
-      return glPopup
-    }),
-  },
+  Map: vi.fn(function () {
+    return glMap
+  }),
+  Marker: vi.fn(function (opts?: { element?: HTMLElement }) {
+    return glMarkers.make(opts)
+  }),
+  LngLatBounds: vi.fn(function () {
+    return glBounds.create()
+  }),
+  NavigationControl: vi.fn(),
+  Popup: vi.fn(function () {
+    return glPopup
+  }),
 }))
 vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}))
 
@@ -254,6 +256,7 @@ beforeEach(() => {
   glMap.querySourceFeatures.mockReturnValue([])
   glMap.getCanvas.mockImplementation(() => document.createElement('canvas'))
   glMap.getBearing.mockReturnValue(0)
+  glMap.getZoom.mockReturnValue(10)
   glMap.queryTerrainElevation.mockReturnValue(null)
   // A busy style, a refused source and a custom layer list are each set by one test
   // for the case it covers. Put back here, or every test after it would silently run
@@ -348,7 +351,7 @@ describe('MapViewGL', () => {
 
   it('FE-COMP-MAPVIEWGL-004: renders with the MapLibre provider and no token', async () => {
     const mapboxgl = (await import('mapbox-gl')).default
-    const maplibregl = (await import('maplibre-gl')).default
+    const maplibregl = await import('maplibre-gl')
     useSettingsStore.setState({
       settings: {
         ...useSettingsStore.getState().settings,
@@ -369,7 +372,7 @@ describe('MapViewGL', () => {
 
   it('FE-COMP-MAPVIEWGL-014: MapLibre maps disable the around-center mouse rotate (#1545)', async () => {
     const mapboxgl = (await import('mapbox-gl')).default
-    const maplibregl = (await import('maplibre-gl')).default
+    const maplibregl = await import('maplibre-gl')
     useSettingsStore.setState({
       settings: {
         ...useSettingsStore.getState().settings,
@@ -887,6 +890,116 @@ describe('MapViewGL', () => {
     return calls[calls.length - 1][0] as { features: GeoFeature[] }
   }
 
+  it('moves a passive semantic profile focus pin without changing the map camera', async () => {
+    loadOnAttach()
+    const focus = { distanceMeters: 120, elevationMeters: 340, lat: 48.123, lng: 11.456, sampleIndex: 3 }
+    const focusPoints: [number, number][] = [[48.1, 11.4], [48.2, 11.5]]
+    const route: [number, number][][] = [[[48.1, 11.4], [48.2, 11.5]]]
+    const { rerender } = render(<MapViewGL places={[]} route={route} fitKey={1} focusPoints={focusPoints} glProvider="maplibre-gl" routeProfileFocus={focus} />)
+    await act(async () => {})
+
+    const marker = glCanvasContainer.querySelector<HTMLElement>('[data-tour-profile-focus="true"]')
+    expect(marker).not.toBeNull()
+    const projected = glMap.project([focus.lng, focus.lat])
+    expect(marker?.style.transform).toContain(`translate(${projected.x}px, ${projected.y}px)`)
+    expect(marker?.style.pointerEvents).toBe('none')
+    expect(marker?.style.background).toBe('var(--text-muted)')
+    expect(marker?.style.border).toBe('3px solid var(--bg-card)')
+    expect(glCanvasContainer.contains(marker)).toBe(true)
+    glMap.fitBounds.mockClear()
+    glMap.flyTo.mockClear()
+    glMap.jumpTo.mockClear()
+    glMap.easeTo.mockClear()
+
+    const movedFocus = { ...focus, lat: 48.16, lng: 11.47 }
+    rerender(<MapViewGL places={[]} route={route} fitKey={1} focusPoints={focusPoints} glProvider="maplibre-gl" routeProfileFocus={movedFocus} />)
+    await act(async () => {})
+    const movedMarker = glCanvasContainer.querySelector<HTMLElement>('[data-tour-profile-focus="true"]')
+    expect(movedMarker).toBe(marker)
+    expect(movedMarker?.style.transform).toContain(`translate(${glMap.project([movedFocus.lng, movedFocus.lat]).x}px, ${glMap.project([movedFocus.lng, movedFocus.lat]).y}px)`)
+    expect(glMap.fitBounds).not.toHaveBeenCalled()
+    expect(glMap.flyTo).not.toHaveBeenCalled()
+    expect(glMap.jumpTo).not.toHaveBeenCalled()
+    expect(glMap.easeTo).not.toHaveBeenCalled()
+
+    rerender(<MapViewGL places={[]} route={route} fitKey={1} focusPoints={focusPoints} glProvider="maplibre-gl" routeProfileFocus={null} />)
+    await act(async () => {})
+    expect(glCanvasContainer.contains(marker)).toBe(false)
+    expect(glMap.fitBounds).not.toHaveBeenCalled()
+    expect(glMap.flyTo).not.toHaveBeenCalled()
+    expect(glMap.jumpTo).not.toHaveBeenCalled()
+    expect(glMap.easeTo).not.toHaveBeenCalled()
+  })
+
+  it('frames Tour focus once, ignores waypoint and route updates, then honors a new focus intent', async () => {
+    loadOnAttach()
+    const { rerender } = render(
+      <MapViewGL
+        places={[]}
+        route={null}
+        followSelection={false}
+        focusKey={1}
+        focusPoints={[[48, 11], [48.2, 11.3]]}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+    expect(glMap.fitBounds.mock.calls).toEqual([[expect.anything(), expect.objectContaining({ duration: 0 })]])
+    glMap.fitBounds.mockClear()
+    const mapConstructions = (maplibregl.Map as any).mock.calls.length
+    const retainedCenter = { lng: 135.8, lat: 35.2 }
+    glMap.getCenter.mockReturnValue(retainedCenter)
+    glMap.getZoom.mockReturnValue(12)
+
+    rerender(
+      <MapViewGL
+        places={[]}
+        followSelection={false}
+        focusKey={2}
+        focusPoints={[]}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+    expect(glMap.fitBounds).not.toHaveBeenCalled()
+    expect(glMap.flyTo).not.toHaveBeenCalled()
+    expect(glMap.jumpTo).not.toHaveBeenCalled()
+    expect(glMap.easeTo).not.toHaveBeenCalled()
+    expect((maplibregl.Map as any).mock.calls).toHaveLength(mapConstructions)
+    expect(glMap.getCenter()).toEqual(retainedCenter)
+    expect(glMap.getZoom()).toBe(12)
+
+    rerender(
+      <MapViewGL
+        places={[]}
+        followSelection={false}
+        focusKey={2}
+        focusPoints={[[35.01, 135.76]]}
+        glProvider="maplibre-gl"
+      />,
+    )
+    await act(async () => {})
+    expect(glMap.fitBounds.mock.calls).toEqual([[expect.anything(), expect.objectContaining({ duration: 400 })]])
+  })
+
+  it('keeps selection fit and the pending route-arrival refit for semantic changes', async () => {
+    loadOnAttach()
+    const selectedPlace = buildPlace({ id: 902, lat: 48, lng: 11 })
+    const route: [number, number][][] = [[[48, 11], [48.2, 11.3]]]
+    const { rerender } = render(<MapViewGL places={[]} route={null} fitKey={0} glProvider="maplibre-gl" />)
+    await act(async () => {})
+    glMap.fitBounds.mockClear()
+
+    rerender(<MapViewGL places={[selectedPlace]} route={null} fitKey={1} glProvider="maplibre-gl" />)
+    await act(async () => {})
+    expect(glMap.fitBounds).toHaveBeenCalled()
+    glMap.fitBounds.mockClear()
+
+    rerender(<MapViewGL places={[selectedPlace]} route={route} fitKey={2} glProvider="maplibre-gl" />)
+    await act(async () => {})
+    expect(glMap.fitBounds).toHaveBeenCalled()
+  })
+
   // jsdom drives requestAnimationFrame off a timer, so the marker reconcile and
   // the batched photo updates only land after a short tick.
   const flushFrames = () => act(async () => { await new Promise(resolve => setTimeout(resolve, 40)) })
@@ -1379,6 +1492,33 @@ describe('MapViewGL', () => {
     expect(onReservationClick).toHaveBeenCalledWith(77)
   })
 
+  it('FE-COMP-MAPVIEWGL-087: a booking switched on for another day reaches the overlay unless the map is held to the day', async () => {
+    loadOnAttach()
+    const days = [{ id: 10, trip_id: 1, day_number: 1 }, { id: 11, trip_id: 1, day_number: 2 }]
+    const flight = {
+      id: 44, trip_id: 1, type: 'flight', title: 'A → B', status: 'confirmed', day_id: 10, end_day_id: 10,
+      endpoints: [
+        { role: 'from', sequence: 0, name: 'A', code: 'AAA', lat: 1, lng: 2, timezone: null, local_time: null, local_date: null },
+        { role: 'to', sequence: 1, name: 'B', code: 'BBB', lat: 3, lng: 4, timezone: null, local_time: null, local_date: null },
+      ],
+    }
+    const reservations = [flight]
+    const ids = [44]
+    const drawn = () => (reservationOverlay.update.mock.lastCall?.[0] as { id: number }[]).map(r => r.id)
+
+    const { rerender } = render(
+      <MapViewGL places={[]} fitKey={1} reservations={reservations} visibleConnectionIds={ids} days={days} selectedDayId={11} />,
+    )
+    await act(async () => {})
+    expect(drawn()).toEqual([44])
+
+    rerender(
+      <MapViewGL places={[]} fitKey={1} reservations={reservations} visibleConnectionIds={ids} days={days} selectedDayId={11} scopeConnectionsToDay />,
+    )
+    await act(async () => {})
+    expect(drawn()).toEqual([])
+  })
+
   it('FE-COMP-MAPVIEWGL-042: explore POIs get their own pin, hover popup and click callback', async () => {
     loadOnAttach()
     const basePoi: Poi = {
@@ -1435,7 +1575,58 @@ describe('MapViewGL', () => {
     const list = calls[calls.length - 1][0]
     act(() => { list.querySelectorAll('button')[1].click() })
     expect(onPoiClick).toHaveBeenCalledWith(other)
-    vi.mocked(glMap.getZoom).mockReturnValue(10)
+  })
+
+  const pinGlyph = (Icon: LucideIcon) => renderIconMarkup(React.createElement(Icon, { size: 13, color: 'white', strokeWidth: 2.5 }))
+  const explorePoi = (overrides: Partial<Poi>): Poi => ({
+    osm_id: 'n1', name: 'Café de Flore', lat: 48.854, lng: 2.332, category: 'cafe',
+    poi_type: 'cafe', address: null, website: null, phone: null, opening_hours: null,
+    cuisine: null, source: 'openstreetmap', ...overrides,
+  })
+
+  it('FE-COMP-MAPVIEWGL-104: a core POI pin is the disc it always was', async () => {
+    loadOnAttach()
+    render(<MapViewGL places={[]} fitKey={1} pois={[explorePoi({})]} />)
+    await act(async () => {})
+    // Parsed the same way the element's own markup was, so only a real change shows up.
+    const expected = document.createElement('div')
+    expected.innerHTML = '<div style="position:relative;width:26px;height:26px;border-radius:50%;background:#B45309;border:2px solid #fff;box-shadow:0 1px 5px rgba(0,0,0,0.3);display:flex;align-items:center;justify-content:center;box-sizing:border-box;overflow:hidden;">'
+      + `${pinGlyph(Coffee)}</div>`
+    expect(glMarkers.created[0].element.innerHTML).toBe(expected.innerHTML)
+  })
+
+  it('FE-COMP-MAPVIEWGL-105: a plugin POI pin and its hover card use its checked colour and icon, and its details stay text', async () => {
+    loadOnAttach()
+    const plugin = explorePoi({
+      osm_id: 'plugin:trail-finder:1', name: '<img src=x onerror=alert(1)>', category: 'plugin:trail-finder/trailheads',
+      source: 'plugin:trail-finder', pluginId: 'trail-finder', color: '#2f855a', icon: 'Signpost',
+      details: [{ label: 'Length', value: '12.4 km' }, { label: '<b>Fee</b>', value: '"><svg onload=alert(2)>' }],
+    })
+    const bad = explorePoi({
+      osm_id: 'plugin:trail-finder:2', category: 'plugin:trail-finder/trailheads',
+      color: 'red;background:url(https://evil.example/x)', icon: '<img src=x onerror=alert(3)>',
+    })
+    render(<MapViewGL places={[]} fitKey={1} pois={[plugin, bad]} />)
+    await act(async () => {})
+
+    const [good, fallback] = glMarkers.created.map(pin => pin.element)
+    expect(good.innerHTML).toContain('background:#2f855a;')
+    expect(good.querySelectorAll('svg')).toHaveLength(1)
+    expect(good.querySelector('svg.lucide-signpost')).not.toBeNull()
+    expect(fallback.innerHTML).toContain('background:#6b7280;')
+    expect(fallback.innerHTML).not.toContain('evil.example')
+    expect(fallback.querySelectorAll('img')).toHaveLength(0)
+    expect(fallback.querySelector('svg.lucide-map-pin')).not.toBeNull()
+
+    act(() => { good.dispatchEvent(new MouseEvent('mouseenter')) })
+    const card = document.createElement('div')
+    card.innerHTML = vi.mocked(glPopup.setHTML).mock.lastCall![0]
+    expect(card.querySelectorAll('img, b')).toHaveLength(0)
+    expect(card.querySelectorAll('svg')).toHaveLength(1)
+    expect(card.textContent).toContain('<img src=x onerror=alert(1)>')
+    expect([...card.querySelectorAll('div[style*="grid-template-columns"] > span')].map(el => el.textContent)).toEqual([
+      'Length', '12.4 km', '<b>Fee</b>', '"><svg onload=alert(2)>',
+    ])
   })
 
   it('FE-COMP-MAPVIEWGL-043: plugin markers render as tone dots with a text-only popup', async () => {
@@ -1701,6 +1892,33 @@ describe('MapViewGL', () => {
     expect(features[1].properties.color).toBeNull()
   })
 
+  it('uses view-local Topo tiles and controls without writing settings or moving the camera', async () => {
+    glMap.on.mockImplementation((event, handlerOrLayer) => {
+      if (event === 'load' && typeof handlerOrLayer === 'function') handlerOrLayer()
+      return glMap
+    })
+    const onChange = vi.fn()
+    const settings = useSettingsStore.getState().settings.map_base_layer
+    const { container, rerender } = render(<MapViewGL places={[]} fitKey={1} glProvider="maplibre-gl" viewBaseLayer="topo" onViewBaseLayerChange={onChange} />)
+    await act(async () => {})
+    expect(glMap.addSource).toHaveBeenCalledWith('trip-topo', expect.objectContaining({
+      type: 'raster', tiles: ['a', 'b', 'c'].map(subdomain => `https://${subdomain}.tile.opentopomap.org/{z}/{x}/{y}.png`),
+    }))
+    const button = Array.from(container.querySelectorAll('button')).find(element => element.textContent === 'Topo')!
+    expect(button).toHaveAttribute('aria-pressed', 'true')
+    fireEvent.click(button)
+    expect(onChange).toHaveBeenCalledWith('topo')
+    expect(useSettingsStore.getState().settings.map_base_layer).toBe(settings)
+    glMap.fitBounds.mockClear()
+    glMap.flyTo.mockClear()
+    glMap.jumpTo.mockClear()
+    rerender(<MapViewGL places={[]} fitKey={1} glProvider="maplibre-gl" viewBaseLayer="default" onViewBaseLayerChange={onChange} />)
+    await act(async () => {})
+    expect(glMap.fitBounds).not.toHaveBeenCalled()
+    expect(glMap.flyTo).not.toHaveBeenCalled()
+    expect(glMap.jumpTo).not.toHaveBeenCalled()
+  })
+
   it('FE-COMP-MAPVIEWGL-049: unusable GPX geometry is skipped instead of breaking the layer', async () => {
     const gpxSource = geoSource()
     glMap.getSource.mockImplementation((id: string) => (id === 'trip-gpx' ? gpxSource : null))
@@ -1717,6 +1935,47 @@ describe('MapViewGL', () => {
     const { features } = lastData(gpxSource)
     expect(features).toHaveLength(1)
     expect(features[0].properties.place_id).toBe(74)
+  })
+
+  it.each([
+    ['two-point', [[48, 2], [49, 3]]],
+    ['elevation', [[48, 2, 12.5], [49, 3, 22.75]]],
+    ['long track', Array.from({ length: 1200 }, (_, index) => [48 + index / 100000, 2 + index / 100000])],
+    ['loop', [[48, 2], [48.1, 2.1], [48, 2]]],
+    ['point-to-point Tour', [[48, 2], [48.5, 2.5], [49, 3]]],
+  ])('renders valid %s geometry with MapLibre coordinate order', async (_label, geometry) => {
+    const features = gpxFeatures()
+    render(<MapViewGL places={[buildMapPlace({ route_geometry: JSON.stringify(geometry) })]} fitKey={1} />)
+    await act(async () => {})
+    expect(features()).toHaveLength(1)
+    expect(features()[0].geometry.coordinates).toEqual(geometry.map(([lat, lng]) => [lng, lat]))
+  })
+
+  it.each([
+    ['malformed JSON', 'not json'],
+    ['non-array JSON', '{"coordinates":[]}'],
+    ['one point', '[[48,2]]'],
+    ['missing coordinate dimension', '[[48],[49,3]]'],
+    ['string coordinates', '[[48,"2"],[49,3]]'],
+    ['NaN token', '[[48,2],[NaN,3]]'],
+    ['Infinity token', '[[48,2],[49,Infinity]]'],
+    ['out-of-range latitude', '[[48,2],[91,3]]'],
+    ['out-of-range longitude', '[[48,2],[49,181]]'],
+    ['all-invalid coordinates', '[[91,2],[49,181]]'],
+  ])('omits %s geometry from the MapLibre source', async (_label, geometry) => {
+    const features = gpxFeatures()
+    expect(() => render(<MapViewGL places={[buildMapPlace({ route_geometry: geometry })]} fitKey={1} />)).not.toThrow()
+    await act(async () => {})
+    expect(features()).toHaveLength(0)
+  })
+
+  it('filters invalid points and preserves valid order in the MapLibre source', async () => {
+    const features = gpxFeatures()
+    const geometry = '[[48,2],null,[91,4],[48.5,2.5],[49,3]]'
+    render(<MapViewGL places={[buildMapPlace({ route_geometry: geometry })]} fitKey={1} />)
+    await act(async () => {})
+    expect(features()).toHaveLength(1)
+    expect(features()[0].geometry.coordinates).toEqual([[2, 48], [2.5, 48.5], [3, 49]])
   })
 
   it('FE-COMP-MAPVIEWGL-050: without a Mapbox token it shows the settings hint and touches no camera', async () => {
@@ -1955,13 +2214,13 @@ describe('MapViewGL', () => {
     expect((window as any).__trek_map).toBeUndefined()
   })
 
-  it('FE-COMP-MAPVIEWGL-059: pan and zoom report the visible bbox for the POI explore pill', async () => {
+  it('FE-COMP-MAPVIEWGL-059: pan and zoom report the visible bbox and tile zoom for the POI explore pill', async () => {
     const onViewportChange = vi.fn()
     render(<MapViewGL places={[]} fitKey={1} onViewportChange={onViewportChange} />)
     await act(async () => {})
 
     act(() => { mapHandler('moveend')() })
-    expect(onViewportChange).toHaveBeenCalledWith({ south: 0, west: 0, north: 1, east: 1 })
+    expect(onViewportChange).toHaveBeenCalledWith({ south: 0, west: 0, north: 1, east: 1 }, 11)
   })
 
   it('FE-COMP-MAPVIEWGL-060: a new POI or via set replaces the previous overlay markers', async () => {

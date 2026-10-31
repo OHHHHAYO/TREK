@@ -72,7 +72,10 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'Удалено в TREK',
   'docsync.state.scope_drift': 'Перемещено за пределы папки',
 
-  'docsync.conflict.resolve': "Решить: {count}",
+  'docsync.conflict.resolve': 'Решить: {count}',
+  'docsync.conflict.resolve.one': 'Решить: {count}',
+  'docsync.conflict.resolve.few': 'Решить: {count}',
+  'docsync.conflict.resolve.many': 'Решить: {count}',
 
   'docsync.conflict.title': 'Изменились обе копии',
   'docsync.conflict.keepTrek': 'Оставить версию TREK',
@@ -178,8 +181,15 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': 'Передача не прошла.',
 
   'docsync.error.unknown_provider': 'Этот провайдер недоступен в этом экземпляре.',
-  'docsync.error.provider_disabled': 'Приостановлено: администратор отключил этого провайдера. Синхронизация возобновится, как только его снова включат.',
+  'docsync.error.provider_disabled':
+    'Приостановлено: администратор отключил этого провайдера. Синхронизация возобновится, как только его снова включат.',
   'docsync.binding.reconnect': 'Подключить заново',
+  'docsync.connection.title': 'Подключение',
+  'docsync.connection.hint': 'Адрес и данные входа, которые TREK использует для этого хранилища.',
+  'docsync.connection.edit': 'Изменить подключение',
+  'docsync.connection.remove': 'Удалить подключение',
+  'docsync.connection.confirmRemove':
+    'TREK забудет адрес и данные входа для этого хранилища, и вся синхронизация этой поездки через него остановится. Документы останутся в TREK и в хранилище.',
 };
 
 export default docsync;

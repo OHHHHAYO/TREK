@@ -10,6 +10,12 @@ import { buildUser, buildSettings } from '../../../tests/helpers/factories';
 import AccountTab from './AccountTab';
 import { ToastContainer } from '../shared/Toast';
 
+// Enabling or disabling MFA reloads the user, and loadUser registers the
+// background sync triggers: a 30 s heartbeat and window listeners that nothing
+// here unregisters, so they outlive the test and can fire, and log, while the
+// file's worker shuts down. Nothing here is about sync.
+vi.mock('../../sync/syncTriggers', () => ({ registerSyncTriggers: vi.fn(), unregisterSyncTriggers: vi.fn() }));
+
 beforeEach(() => {
   resetAllStores();
   server.use(
@@ -389,10 +395,20 @@ describe('AccountTab – MFA', () => {
     expect(screen.getByText(/requires two-factor authentication/i)).toBeInTheDocument();
   });
 
-  it('FE-COMP-ACCOUNT-036: MFA section shows demoBlocked message in demo mode', () => {
-    seedStore(useAuthStore, { demoMode: true });
+  it('FE-COMP-ACCOUNT-036: the shared demo account sees the whole tab under the demo lock', () => {
+    seedStore(useAuthStore, { demoMode: true, user: buildUser({ email: 'demo@trek.app', mfa_enabled: false }) });
+    const { container } = render(<AccountTab />);
+    expect(screen.getByRole('note')).toHaveTextContent('The shared demo account cannot be changed.');
+    expect(container.querySelector('[data-demo-lock] [inert]')).toContainElement(
+      screen.getByRole('button', { hidden: true, name: /Set up authenticator/ }),
+    );
+  });
+
+  it('FE-COMP-ACCOUNT-036b: the admin of a demo instance keeps the tab unlocked, 2FA included', () => {
+    seedStore(useAuthStore, { demoMode: true, user: buildUser({ email: 'admin@trek.app', role: 'admin', mfa_enabled: false }) });
     render(<AccountTab />);
-    expect(screen.getByText('Not available in demo mode')).toBeInTheDocument();
+    expect(screen.queryByRole('note')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Set up authenticator/ })).toBeInTheDocument();
   });
 });
 
@@ -822,7 +838,10 @@ describe('AccountTab – Modals and field edits', () => {
     await user.click(screen.getByText('Delete account'));
     await screen.findByText('Deletion not possible');
 
-    fireEvent.click(backdropOf('Deletion not possible'));
+    // The shared dialog shell closes only on a press that starts and ends on the backdrop.
+    const backdrop = backdropOf('Deletion not possible');
+    fireEvent.mouseDown(backdrop);
+    fireEvent.click(backdrop);
 
     expect(screen.queryByText('Deletion not possible')).not.toBeInTheDocument();
   });
@@ -862,21 +881,20 @@ describe('AccountTab – Modals and field edits', () => {
     expect(updateProfile).toHaveBeenCalledWith({ username: 'testuser', email: 'new@example.com' });
   });
 
-  it('FE-COMP-ACCOUNT-069: hover styling on the password and camera buttons is reverted on leave', () => {
+  it('FE-COMP-ACCOUNT-069: hovering the password and camera buttons leaves no inline style behind', () => {
     render(<AccountTab />);
 
+    // Hover is CSS now; nothing is written onto the element that could stick after leave.
     const passwordBtn = screen.getByText('Update password').closest('button') as HTMLElement;
     fireEvent.mouseEnter(passwordBtn);
-    expect(passwordBtn.style.background).toBe('var(--bg-hover)');
     fireEvent.mouseLeave(passwordBtn);
-    expect(passwordBtn.style.background).toBe('var(--bg-card)');
+    expect(passwordBtn.style.background).toBe('');
 
     const fileInput = document.querySelector('input[type="file"]') as HTMLInputElement;
     const cameraBtn = fileInput.nextElementSibling as HTMLElement;
+    expect(cameraBtn).toHaveAccessibleName('Upload Profile Picture');
     fireEvent.mouseEnter(cameraBtn);
-    expect(cameraBtn.style.transform).toBe('scale(1.15)');
     fireEvent.mouseLeave(cameraBtn);
-    expect(cameraBtn.style.transform).toBe('scale(1)');
-    expect(cameraBtn.style.opacity).toBe('1');
+    expect(cameraBtn.style.transform).toBe('');
   });
 });

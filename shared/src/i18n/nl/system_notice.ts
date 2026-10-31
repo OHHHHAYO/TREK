@@ -9,8 +9,8 @@ const system_notice: TranslationStrings = {
   'system_notice.welcome_v1.highlight_plan': "Dag-voor-dag reisschema's",
   'system_notice.welcome_v1.highlight_share': 'Samenwerken met reisgezelschap',
   'system_notice.welcome_v1.highlight_offline': 'Werkt offline op mobiel',
-  'system_notice.dev_test_modal.title': '[Dev] Test notice',
-  'system_notice.dev_test_modal.body': 'This is a dev-only test notice.',
+  'system_notice.dev_test_modal.title': '[Dev] Testmelding',
+  'system_notice.dev_test_modal.body': 'Dit is een testmelding alleen voor ontwikkelaars.',
   'system_notice.thank_you_support.title': 'Bedankt voor het gebruik van TREK',
   'system_notice.thank_you_support.body':
     'Even een kort bedankje dat je TREK hebt geïnstalleerd — het betekent echt veel voor me.\n\nIk ben een solo-ontwikkelaar en bouw TREK in mijn vrije tijd. Het begon als een klein hulpmiddel voor mijn eigen reizen, en ik ben oprecht overweldigd door de steun en de interesse vanuit de community sindsdien. TREK is met heel veel hart gemaakt aan mijn kant — maar ook dankzij de vele geweldige externe bijdragers die hebben geholpen het vorm te geven.\n\n**TREK is open source en volledig gratis — en dat zal het voor altijd blijven. Geen betaalde versies, geen abonnementen, geen addertjes onder het gras. Dat beloof ik.**\n\nAls TREK nuttig voor je is en je de ontwikkeling ervan wilt steunen, helpt een klein kopje koffie me oprecht om te blijven bouwen — absoluut geen druk, maar elk kopje houdt de late avonden gaande.\n\nBedankt dat je er bent.\n\n— Maurice',
@@ -56,16 +56,23 @@ const system_notice: TranslationStrings = {
     'De 3.0.14-upgrade heeft één of meer conflicten in gebruikersnaam of e-mailadres gedetecteerd, veroorzaakt door spaties aan het begin of einde van opgeslagen waarden. Getroffen accounts zijn automatisch hernoemd. Controleer de serverlogboeken op regels die beginnen met **[migration] WHITESPACE COLLISION** om te achterhalen welke accounts moeten worden beoordeeld.',
   // The release modal. One stable set of keys: each big release swaps the copy in place.
   'system_notice.release_notes.eyebrow': 'Update geïnstalleerd',
-  'system_notice.release_notes.headline': 'Vier dingen die TREK nu zelf doet.',
-  'system_notice.release_notes.intro': 'Een eigen plaatsen-API, roadtrips van begin tot eind gepland, je locatiegeschiedenis in eigen hand, en je documenten gesynchroniseerd.',
+  'system_notice.release_notes.headline': 'De grootste TREK tot nu toe.',
+  'system_notice.release_notes.intro':
+    'Tochten voor elke dag buiten, een studio voor je fotoboeken, een assistent die met je meeplant en hulp op elk scherm.',
   'system_notice.release_notes.features_label': 'De hoogtepunten',
   'system_notice.release_notes.features_aside': 'Lang niet alles',
-  'system_notice.release_notes.feature_places_title': 'TREK Places API',
-  'system_notice.release_notes.feature_places_body': 'De eerste open source reisplanner met een eigen plaatsen-API. 73,6 miljoen plaatsen, geen sleutel, geen quotum.',
-  'system_notice.release_notes.feature_roadtrip_title': 'Roadtrip-addon',
-  'system_notice.release_notes.feature_roadtrip_body': 'Plant de rit zelf: route, afstand, uren en stops. Uit totdat een admin het inschakelt.',
-  'system_notice.release_notes.feature_dawarich_title': 'Dawarich-integratie',
-  'system_notice.release_notes.feature_dawarich_body': 'Het zelfgehoste antwoord op Google Timeline, nu rechtstreeks leesbaar in TREK. TREK leest, en alleen dat.',
+  'system_notice.release_notes.feature_tours_title': 'Tochten',
+  'system_notice.release_notes.feature_tours_body':
+    'Wandelingen, fietstochten, hardlooprondes, ritten te paard, peddeltochten, stadswandelingen en skidagen, met hoogteprofiel, moeilijkheidsgraden en een 3D-vlucht.',
+  'system_notice.release_notes.feature_studio_title': 'TREK Studio', // same-as-en
+  'system_notice.release_notes.feature_studio_body':
+    'Maakt van een reis een ontworpen fotoboek: 17 thema’s, 34 lettertypen, 160 stickers en automatische opmaak in één klik.',
+  'system_notice.release_notes.feature_assistant_title': 'AI-assistent',
+  'system_notice.release_notes.feature_assistant_body':
+    'Plant met je mee in je echte reizen, met het AI-account dat je al hebt. Elke wijziging zie je eerst en kun je ongedaan maken.',
+  'system_notice.release_notes.feature_help_title': 'Hulp op elk scherm, in 27 talen',
+  'system_notice.release_notes.feature_help_body':
+    'Zo’n 370 stapsgewijze handleidingen met 1.600 afbeeldingen, precies waar je ze nodig hebt. Nieuw: Azerbeidzjaans, Ests, Slowaaks en Thai.',
   'system_notice.release_notes.footnote': 'En daarnaast een lange lijst kleinere wijzigingen in de rest van TREK.',
   'system_notice.release_notes.notes_label': 'Release notes',
   'system_notice.release_notes.note_eyebrow': 'Een woord van de maintainer',
@@ -85,7 +92,5 @@ const system_notice: TranslationStrings = {
     'Als TREK een plek in je reizen heeft verdiend, trakteer me dan op een kopje koffie en help zo de volgende release op weg.',
   'system_notice.release_notes.cta_bmc': 'Buy me a coffee',
   'system_notice.release_notes.cta_kofi': 'Steun op Ko-fi',
-  'system_notice.release_notes.feature_docsync_title': 'Documentsynchronisatie',
-  'system_notice.release_notes.feature_docsync_body': 'Paperless-ngx, Papra, Nextcloud, OpenCloud en Synology Drive. De documenten van een reis stromen in beide richtingen met de opslag die je al draait.',
 };
 export default system_notice;

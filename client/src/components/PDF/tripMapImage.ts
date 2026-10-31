@@ -1,7 +1,9 @@
 import { buildRouteOverlay, wrapSvg } from './tripMapSvg'
 import { hasWebGL } from '../../utils/webgl'
 import { normalizeStyleForProvider } from '../Map/glProviders'
+import { buildGlMap } from '../Map/glSupport'
 import type { TripOverviewDay } from '../Map/tripRouteGeometry'
+import { importChunk } from '../../utils/chunkReload'
 
 /**
  * The trip's route over a real basemap, for the PDF (#1736).
@@ -39,27 +41,29 @@ export async function renderTripMapImage(
   opts: TripMapImageOptions,
 ): Promise<string | null> {
   const { width, height } = opts
-  const drawn = days.filter(d => d.lines.some(line => line.length > 1))
-  const points = drawn.flatMap(d => d.lines.flat())
+  const drawn = days.filter(d => [...d.lines, ...(d.tourLines ?? [])].some(line => line.length > 1))
+  const points = drawn.flatMap(d => [...d.lines, ...(d.tourLines ?? [])].flat())
   if (points.length < 2 || !hasWebGL()) return null
 
   let container: HTMLDivElement | null = null
   let map: { remove: () => void } | null = null
   try {
-    const gl = (await import('../Map/engines/maplibre')).default
+    const gl = (await importChunk(() => import('../Map/engines/maplibre'))).default
 
-    container = document.createElement('div')
+    // A const of its own: the map is built inside a closure, where the let's narrowing is gone.
+    const box = document.createElement('div')
+    container = box
     // Off-screen rather than hidden: MapLibre needs a laid-out box with real
     // dimensions, and `display:none` gives it a zero-sized canvas.
-    container.style.cssText =
+    box.style.cssText =
       `position:fixed;left:-10000px;top:0;width:${width}px;height:${height}px;pointer-events:none;`
-    document.body.appendChild(container)
+    document.body.appendChild(box)
 
     const bounds = new gl.LngLatBounds()
     for (const [lat, lng] of points) bounds.extend([lng, lat])
 
-    const instance = new gl.Map({
-      container,
+    const instance = buildGlMap(() => new gl.Map({
+      container: box,
       style: normalizeStyleForProvider('maplibre-gl', opts.style),
       bounds,
       fitBoundsOptions: { padding: 42, animate: false },
@@ -69,7 +73,9 @@ export async function renderTripMapImage(
       // MapLibre 5 moved the WebGL flags off the top level into this bag.
       canvasContextAttributes: { preserveDrawingBuffer: true, antialias: true },
       fadeDuration: 0,
-    })
+    }))
+    // A GPU that offered WebGL2 and then refused it: reported, so the app's maps follow.
+    if (!instance) return null
     map = instance
 
     const ready = await new Promise<boolean>(resolve => {

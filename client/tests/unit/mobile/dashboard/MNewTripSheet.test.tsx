@@ -6,7 +6,9 @@ import { tripsApi } from '../../../../src/api/client';
 import { useAuthStore } from '../../../../src/store/authStore';
 import { usePermissionsStore } from '../../../../src/store/permissionsStore';
 import { useSettingsStore } from '../../../../src/store/settingsStore';
-import { buildUser } from '../../../helpers/factories';
+import { buildAssignment, buildDay, buildPlace, buildUser } from '../../../helpers/factories';
+import { http, HttpResponse } from 'msw';
+import { server } from '../../../helpers/msw/server';
 import type { DashboardTrip } from '../../../../src/pages/dashboard/dashboardModel';
 import { MAX_TRIP_DAYS, type Trip, type TripCreateRequest } from '@trek/shared';
 
@@ -122,6 +124,16 @@ describe('MNewTripSheet', () => {
     expect(onSave).not.toHaveBeenCalled();
   });
 
+  it('FE-MOB-NTSH-003b: typing a title clears the title error (#2604)', () => {
+    render(<MNewTripSheet open trip={null} onClose={() => {}} onSave={vi.fn(async () => undefined)} />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create New Trip' }))
+    expect(screen.getByText('Title is required')).toBeInTheDocument()
+
+    fireEvent.change(screen.getByPlaceholderText('e.g. Summer in Japan'), { target: { value: 'P' } })
+    expect(screen.queryByText('Title is required')).not.toBeInTheDocument()
+  })
+
   it('FE-MOB-NTSH-004: an end date before the start blocks the save', () => {
     const onSave = vi.fn(async () => undefined);
     render(<MNewTripSheet open trip={null} onClose={() => {}} onSave={onSave} />);
@@ -166,6 +178,7 @@ describe('MNewTripSheet', () => {
       start_date: null,
       end_date: null,
       currency: 'USD',
+      reminder_days: 0,
       day_count: 7,
     }));
     expect(onClose).toHaveBeenCalled();
@@ -558,5 +571,160 @@ describe('MNewTripSheet', () => {
 
     expect(onClose).toHaveBeenCalledTimes(2);
     expect(onSave).not.toHaveBeenCalled();
+  });
+
+  // ── Shortening an existing trip: the same question as on the desktop ─────
+
+  /** The trip's days as the server has them: 1 to 8 May, a place on the last two. */
+  function seedDays(withContent = true) {
+    const days = Array.from({ length: 8 }, (_, i) => buildDay({
+      id: 500 + i,
+      trip_id: 42,
+      day_number: i + 1,
+      date: `2026-05-0${i + 1}`,
+      assignments: withContent && i >= 6 ? [buildAssignment({ day_id: 500 + i, place: buildPlace({ id: 600 + i }) })] : [],
+    }));
+    server.use(
+      http.get('/api/trips/:id/days', () => HttpResponse.json({ days })),
+      http.get('/api/trips/:id/reservations', () => HttpResponse.json({ reservations: [] })),
+      http.get('/api/trips/:id/accommodations', () => HttpResponse.json({ accommodations: [] })),
+    );
+  }
+
+  async function shortenToSixDays(onSave: (data: TripCreateRequest) => Promise<void>, onClose = () => {}) {
+    render(<MNewTripSheet open trip={buildDashTrip()} onClose={onClose} onSave={onSave} />);
+    fireEvent.change(screen.getByLabelText('End Date'), { target: { value: '2026-05-06' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+  }
+
+  it('FE-MOB-NTSH-037: an earlier end opens a danger question that names the days and what is on them', async () => {
+    seedDays();
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    await shortenToSixDays(onSave);
+
+    const sheet = await screen.findByRole('dialog', { name: 'Remove days?' });
+    expect(sheet).toHaveTextContent('Saving the new dates removes these days:');
+    const list = screen.getByRole('list', { name: 'Remove days?' });
+    expect(list).toHaveTextContent('Thu, May 7');
+    expect(list).toHaveTextContent('Fri, May 8');
+    expect(list).toHaveTextContent('Planned places: 2');
+    // The phone has no shift step, so the booking hint is the default one.
+    expect(screen.getByRole('button', { name: 'Remove days and save' })).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('FE-MOB-NTSH-038: cancelling the question saves nothing and keeps the edit sheet', async () => {
+    seedDays();
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    const onClose = vi.fn();
+    await shortenToSixDays(onSave, onClose);
+
+    const sheet = await screen.findByRole('dialog', { name: 'Remove days?' });
+    const cancel = Array.from(sheet.querySelectorAll('button')).find(b => b.textContent === 'Cancel')!;
+    fireEvent.click(cancel);
+
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Remove days?' })).not.toBeInTheDocument());
+    expect(onSave).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByLabelText('End Date')).toHaveValue('2026-05-06');
+  });
+
+  it('FE-MOB-NTSH-039: confirming saves the new dates and closes the sheet', async () => {
+    seedDays();
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    const onClose = vi.fn();
+    await shortenToSixDays(onSave, onClose);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Remove days and save' }));
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ start_date: '2026-05-01', end_date: '2026-05-06' }));
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty('date_shift_mode');
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+  });
+
+  it('FE-MOB-NTSH-040: when only empty days go there is no question, the save goes through', async () => {
+    seedDays(false);
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    await shortenToSixDays(onSave);
+
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ end_date: '2026-05-06' })));
+    expect(screen.queryByRole('dialog', { name: 'Remove days?' })).not.toBeInTheDocument();
+  });
+
+  it('FE-MOB-NTSH-041: when the days cannot be read it still asks, in general terms', async () => {
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    server.use(http.get('/api/trips/:id/days', () => HttpResponse.json({ error: 'boom' }, { status: 500 })));
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    await shortenToSixDays(onSave);
+
+    const sheet = await screen.findByRole('dialog', { name: 'Remove days?' });
+    expect(sheet).toHaveTextContent('The days of this trip could not be checked.');
+    expect(screen.queryByRole('list', { name: 'Remove days?' })).not.toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+});
+
+describe('MNewTripSheet day count and reminder', () => {
+  it('FE-MOB-NTSH-090: a dateless trip sends a changed day count, an unchanged one not', async () => {
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    const trip = buildDashTrip({ start_date: null, end_date: null, day_count: 5 } as Partial<DashboardTrip>);
+    const { unmount } = render(<MNewTripSheet open trip={trip} onClose={vi.fn()} onSave={onSave} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(1));
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty('day_count');
+    unmount();
+
+    render(<MNewTripSheet open trip={trip} onClose={vi.fn()} onSave={onSave} />);
+    fireEvent.change(screen.getByDisplayValue('5'), { target: { value: '9' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledTimes(2));
+    expect(onSave.mock.calls[1][0]).toMatchObject({ day_count: 9 });
+  });
+
+  it('FE-MOB-NTSH-091: an empty day count is refused', async () => {
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    render(<MNewTripSheet open trip={buildDashTrip({ start_date: null, end_date: null, day_count: 5 } as Partial<DashboardTrip>)} onClose={vi.fn()} onSave={onSave} />);
+
+    fireEvent.change(screen.getByDisplayValue('5'), { target: { value: '' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    expect(await screen.findByText('Number of days is required')).toBeInTheDocument();
+    expect(onSave).not.toHaveBeenCalled();
+  });
+
+  it('FE-MOB-NTSH-092: the owner picks a reminder, a preset or a number of their own', async () => {
+    useAuthStore.setState({ tripRemindersEnabled: true });
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    render(<MNewTripSheet open trip={buildDashTrip({ reminder_days: 3 } as Partial<DashboardTrip>)} onClose={vi.fn()} onSave={onSave} />);
+
+    expect(screen.getByRole('button', { name: '3 days' })).toHaveAttribute('aria-pressed', 'true');
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }));
+    const days = screen.getByRole('spinbutton', { name: 'days before departure' });
+    expect(days).toHaveValue(7);
+    fireEvent.change(days, { target: { value: '12' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ reminder_days: 12 })));
+
+    fireEvent.click(screen.getByRole('button', { name: 'None' }));
+    expect(screen.queryByRole('spinbutton', { name: 'days before departure' })).not.toBeInTheDocument();
+  });
+
+  it('FE-MOB-NTSH-093: with reminders off the owner is told where to switch them on', () => {
+    useAuthStore.setState({ tripRemindersEnabled: false });
+    render(<MNewTripSheet open trip={buildDashTrip()} onClose={vi.fn()} onSave={vi.fn()} />);
+    expect(screen.getByText(/Trip reminders are disabled/)).toBeInTheDocument();
+  });
+
+  it('FE-MOB-NTSH-094: someone else\'s trip offers no reminder and sends none', async () => {
+    useAuthStore.setState({ tripRemindersEnabled: true, user: buildUser({ id: 9, role: 'user' }) });
+    const onSave = vi.fn(async (_data: TripCreateRequest) => undefined);
+    render(<MNewTripSheet open trip={buildDashTrip()} onClose={vi.fn()} onSave={onSave} />);
+
+    expect(screen.queryByRole('button', { name: 'Custom' })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Update' }));
+    await waitFor(() => expect(onSave).toHaveBeenCalled());
+    expect(onSave.mock.calls[0][0]).not.toHaveProperty('reminder_days');
   });
 });

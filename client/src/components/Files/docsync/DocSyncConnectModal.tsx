@@ -1,12 +1,14 @@
-import { useState } from 'react'
-import { AlertTriangle, Check, Loader2, ShieldAlert } from 'lucide-react'
-import Modal from '../../shared/Modal'
+import { useId, useState } from 'react'
+import { AlertTriangle, Check, Loader2, Plug, ShieldAlert } from 'lucide-react'
+import { DeleteButton, DialogButton, DialogFooter, DialogHeader, DialogShell, DialogTile, FooterSpacer, NEUTRAL_TINT } from '../../shared/DialogShell'
+import ConfirmDialog from '../../shared/ConfirmDialog'
+import { Tooltip } from '../../shared/Tooltip'
 import ToggleSwitch from '../../Settings/ToggleSwitch'
 import { useTranslation } from '../../../i18n/TranslationContext'
 import { useConnectForm } from './useConnectForm'
 import { Badge } from './DocSyncBits'
-import { DOCUMENT_PROVIDER_ICONS } from '../../shared/DocumentProviderIcons'
-import type { DocSyncProvider, useDocSync } from './useDocSync'
+import { DOCUMENT_PROVIDER_ICONS } from '../../shared/documentProviderIconMap'
+import type { DocSyncProvider, DocSyncVerdict, useDocSync } from './useDocSync'
 
 /**
  * Connecting a store, as a dialog rather than a panel that unfolds in place.
@@ -21,60 +23,68 @@ export default function DocSyncConnectModal({
   sync,
   onClose,
   onConnected,
+  onRemoved,
 }: {
   provider: DocSyncProvider
   sync: ReturnType<typeof useDocSync>
   onClose: () => void
   onConnected: (providerId: string) => void
+  /** After the stored connection was removed from here; left out, the form offers no removal. */
+  onRemoved?: () => void
 }) {
   const { t } = useTranslation()
   const existing = sync.connectionFor(provider.id)
   const Icon = DOCUMENT_PROVIDER_ICONS[provider.id]
 
   const form = useConnectForm(provider, existing, sync)
-  const [verdict, setVerdict] = useState<{ connected: boolean; account?: string; error?: string } | null>(null)
+  const [verdict, setVerdict] = useState<DocSyncVerdict | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+
+  const remove = async () => {
+    if (existing && (await sync.removeConnection(existing.id))) onRemoved?.()
+  }
 
   const test = async () => setVerdict(await form.probe())
+  const labelId = useId()
 
   const save = async () => {
     if (await form.save()) onConnected(provider.id)
   }
 
   return (
-    <Modal
-      isOpen
+    <DialogShell
       onClose={onClose}
-      size="md"
-      title={
-        <span className="flex items-center gap-2.5">
-          {Icon && <Icon className="h-5 w-5 text-content" />}
-          <span>{provider.name}</span>
-        </span>
-      }
-      footer={
-        <div className="flex items-center justify-between gap-3">
+      labelledBy={labelId}
+      blocked={confirmRemove}
+      header={(
+        <DialogHeader
+          tile={<DialogTile>{Icon ? <Icon className="h-5 w-5 text-content" /> : <Plug size={20} strokeWidth={1.9} className="text-content-muted" />}</DialogTile>}
+          tint={NEUTRAL_TINT}
+          labelId={labelId}
+          onClose={onClose}
+          title={provider.name}
+        />
+      )}
+      footer={(
+        <DialogFooter>
+          {existing && onRemoved && (
+            <DeleteButton
+              label={t('docsync.connection.remove')}
+              onClick={() => setConfirmRemove(true)}
+              disabled={sync.busy === 'connection'}
+            />
+          )}
           <Verdict verdict={verdict} busy={sync.busy === 'test'} failure={sync.error} />
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => void test()}
-              disabled={!form.complete || sync.busy === 'test'}
-              className="rounded-lg border border-edge px-3.5 py-2 text-body text-content-secondary transition-colors hover:bg-surface-hover disabled:opacity-50"
-            >
-              {t('docsync.test')}
-            </button>
-            <button
-              type="button"
-              onClick={() => void save()}
-              disabled={!form.complete || sync.busy === 'save'}
-              className="flex items-center gap-2 rounded-lg bg-accent px-3.5 py-2 text-body font-medium text-accent-text transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {sync.busy === 'save' && <Loader2 size={14} className="animate-spin" />}
-              {t('docsync.connect.submit')}
-            </button>
-          </div>
-        </div>
-      }
+          <FooterSpacer />
+          <DialogButton onClick={() => void test()} disabled={!form.complete || sync.busy === 'test'}>
+            {t('docsync.test')}
+          </DialogButton>
+          <DialogButton variant="primary" onClick={() => void save()} disabled={!form.complete || sync.busy === 'save'}
+            icon={sync.busy === 'save' ? <Loader2 size={14} className="animate-spin" /> : undefined}>
+            {t('docsync.connect.submit')}
+          </DialogButton>
+        </DialogFooter>
+      )}
     >
       <div className="space-y-4">
         <p className="text-caption text-content-muted">{t(`docsync.connect.about.${provider.id}`)}</p>
@@ -108,7 +118,16 @@ export default function DocSyncConnectModal({
           </span>
         </label>
       </div>
-    </Modal>
+
+      <ConfirmDialog
+        isOpen={confirmRemove}
+        onClose={() => setConfirmRemove(false)}
+        onConfirm={() => void remove()}
+        title={t('docsync.connection.remove')}
+        message={t('docsync.connection.confirmRemove')}
+        confirmLabel={t('docsync.connection.remove')}
+      />
+    </DialogShell>
   )
 }
 
@@ -142,7 +161,7 @@ function Verdict({
   busy,
   failure,
 }: {
-  verdict: { connected: boolean; account?: string; error?: string } | null
+  verdict: DocSyncVerdict | null
   busy: boolean
   /** A call that failed outside the connection test (saving, most of all). */
   failure: string | null
@@ -180,10 +199,16 @@ function Verdict({
     )
   }
   const blocked = verdict.error === 'ssrf_blocked' || verdict.error === 'tls_untrusted'
+  const message = t(`docsync.error.${verdict.error || 'unknown'}`)
+  // The footer shares its row with the buttons, and a refusal cut to "The
+  // credentials were re..." with no way to read the rest left nothing to go on
+  // (#2666). Two lines, and the whole of it with the store's reason on hover.
   return (
-    <span className="flex min-w-0 items-center gap-2 text-caption text-danger">
-      {blocked ? <ShieldAlert size={14} /> : <AlertTriangle size={14} />}
-      <span className="truncate">{t(`docsync.error.${verdict.error || 'unknown'}`)}</span>
-    </span>
+    <Tooltip label={verdict.detail ? `${message} ${verdict.detail}` : message} placement="top">
+      <span className="flex min-w-0 items-center gap-2 text-caption text-danger">
+        {blocked ? <ShieldAlert size={14} className="flex-none" /> : <AlertTriangle size={14} className="flex-none" />}
+        <span className="line-clamp-2 [overflow-wrap:anywhere]">{message}</span>
+      </span>
+    </Tooltip>
   )
 }

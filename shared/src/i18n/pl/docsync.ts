@@ -70,7 +70,10 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'Usunięty w TREK',
   'docsync.state.scope_drift': 'Przeniesiony poza folder',
 
-  'docsync.conflict.resolve': "Rozwiąż {count}",
+  'docsync.conflict.resolve': 'Rozwiąż {count}',
+  'docsync.conflict.resolve.one': 'Rozwiąż {count}',
+  'docsync.conflict.resolve.few': 'Rozwiąż {count}',
+  'docsync.conflict.resolve.many': 'Rozwiąż {count}',
 
   'docsync.conflict.title': 'Obie kopie zostały zmienione',
   'docsync.conflict.keepTrek': 'Zachowaj wersję z TREK',
@@ -133,7 +136,7 @@ const docsync: TranslationStrings = {
 
   // ── Jedno powiązanie ───────────────────────────────────────────────────────
   'docsync.binding.settings': 'Ustawienia',
-  'docsync.binding.folder': 'Folder',
+  'docsync.binding.folder': 'Folder', // same-as-en
   'docsync.binding.lastRun': 'Ostatnie uruchomienie',
   'docsync.binding.autoOff': 'Wstrzymane',
   'docsync.binding.neverRun': 'jeszcze nie uruchomiono',
@@ -177,8 +180,15 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': 'Transfer się nie powiódł.',
 
   'docsync.error.unknown_provider': 'Ten dostawca nie jest dostępny na tej instancji.',
-  'docsync.error.provider_disabled': 'Wstrzymane: administrator wyłączył tego dostawcę. Synchronizacja zostanie wznowiona, gdy znów go włączy.',
+  'docsync.error.provider_disabled':
+    'Wstrzymane: administrator wyłączył tego dostawcę. Synchronizacja zostanie wznowiona, gdy znów go włączy.',
   'docsync.binding.reconnect': 'Połącz ponownie',
+  'docsync.connection.title': 'Połączenie',
+  'docsync.connection.hint': 'Adres i dane logowania, których TREK używa dla tego magazynu.',
+  'docsync.connection.edit': 'Edytuj połączenie',
+  'docsync.connection.remove': 'Usuń połączenie',
+  'docsync.connection.confirmRemove':
+    'TREK zapomina adres i dane logowania tego magazynu, a każda synchronizacja tej podróży przez niego się zatrzymuje. Dokumenty zostają w TREK i w magazynie.',
 };
 
 export default docsync;

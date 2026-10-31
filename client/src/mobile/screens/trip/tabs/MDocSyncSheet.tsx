@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
   ArrowLeft, ArrowRight, Check, ChevronLeft, ChevronRight, FolderPlus, FolderSync, KeyRound, Link2Off,
-  Loader2, Plus, RefreshCw,
+  Loader2, Plus, RefreshCw, Trash2,
 } from 'lucide-react'
 import MSheet from '../../../components/MSheet'
 import MIconBtn from '../../../components/MIconBtn'
@@ -9,13 +9,15 @@ import MToggle from '../../../components/MToggle'
 import MConfirmSheet from '../../settings/MConfirmSheet'
 import { TileHeader } from '../sheets/MTripSheetUi'
 import { useTranslation } from '../../../../i18n'
-import { DOCUMENT_PROVIDER_ICONS } from '../../../../components/shared/DocumentProviderIcons'
+import { DOCUMENT_PROVIDER_ICONS } from '../../../../components/shared/documentProviderIconMap'
 import TrekIcon from '../../../../components/shared/TrekIcon'
 import {
-  bindingNotice, needsReauth, storeName, useDocSync, type DocSyncLink, type DocSyncProvider,
+  bindingNotice, needsReauth, storeName, useDocSync, type DocSyncLink, type DocSyncProvider, type DocSyncVerdict,
 } from '../../../../components/Files/docsync/useDocSync'
 import { useConnectForm } from '../../../../components/Files/docsync/useConnectForm'
 import { conflictPolicyKey, nextConflictPolicy } from '../../../../components/Files/docsync/DocSyncBits'
+import { slugFor, toggledDirection } from '../../../../components/Files/docsync/docSyncModel'
+import { NEW_SCOPE, useScopePicker } from '../../../../components/Files/docsync/useScopePicker'
 import { useConflicts } from '../../../../components/Files/docsync/useConflicts'
 import { relativeTime } from '../../../../utils/relativeTime'
 
@@ -147,6 +149,7 @@ export default function MDocSyncSheet({
               provider={pending}
               sync={sync}
               onDone={connected}
+              onRemoved={() => { setReconnectFor(null); setPending(null); setView('list') }}
             />
           ) : view === 'scope' && pending && sync.connectionFor(pending.id) ? (
             <ScopeView
@@ -154,6 +157,7 @@ export default function MDocSyncSheet({
               suggestedName={slugFor(tripTitle, tripId)}
               sync={sync}
               onBound={() => setView('list')}
+              onEditConnection={() => setView('connect')}
             />
           ) : view === 'detail' && link ? (
             <DetailView
@@ -294,10 +298,8 @@ function DetailView({
   /** The last remaining direction cannot be switched off. */
   const toggle = (lane: 'push' | 'pull') => {
     if (!canManage) return
-    const nextPush = lane === 'push' ? !pushOn : pushOn
-    const nextPull = lane === 'pull' ? !pullOn : pullOn
-    if (!nextPush && !nextPull) return
-    void sync.updateLink(link.id, { direction: nextPush && nextPull ? 'both' : nextPush ? 'push' : 'pull' })
+    const next = toggledDirection(link.direction, lane)
+    if (next) void sync.updateLink(link.id, { direction: next })
   }
 
   const ranAt = link.lastSyncAt ? Date.parse(link.lastSyncAt) : NaN
@@ -417,6 +419,19 @@ function DetailView({
             </button>
           </SettingRow>
 
+          {onReconnect && (
+            <SettingRow label={t('docsync.connection.title')} hint={t('docsync.connection.hint')}>
+              <button
+                type="button"
+                onClick={onReconnect}
+                className="flex items-center gap-1.5 rounded-full bg-[color:var(--m-ic)] px-3 py-[6px] font-geist text-caption font-bold text-m-ink"
+              >
+                <KeyRound size={12} strokeWidth={2.2} />
+                {t('docsync.connection.edit')}
+              </button>
+            </SettingRow>
+          )}
+
           <button
             type="button"
             onClick={onUnlink}
@@ -443,14 +458,18 @@ function ConnectView({
   provider,
   sync,
   onDone,
+  onRemoved,
 }: {
   provider: DocSyncProvider
   sync: ReturnType<typeof useDocSync>
   onDone: () => void
+  onRemoved: () => void
 }) {
   const { t } = useTranslation()
-  const form = useConnectForm(provider, sync.connectionFor(provider.id), sync)
-  const [verdict, setVerdict] = useState<{ connected: boolean; account?: string; error?: string } | null>(null)
+  const existing = sync.connectionFor(provider.id)
+  const form = useConnectForm(provider, existing, sync)
+  const [verdict, setVerdict] = useState<DocSyncVerdict | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
 
   return (
     <div className="mt-3 flex flex-col gap-3">
@@ -503,6 +522,10 @@ function ConnectView({
               ? t('docsync.connect.okAs', { account: verdict.account })
               : t('docsync.connected')
             : t(`docsync.error.${verdict.error ?? 'unknown'}`)}
+          {/* The store's own reason, so a refusal can be told apart from a typo (#2666). */}
+          {!verdict.connected && verdict.detail && (
+            <span className="mt-0.5 block text-m-muted [overflow-wrap:anywhere]">{verdict.detail}</span>
+          )}
         </p>
       )}
 
@@ -530,6 +553,32 @@ function ConnectView({
           {sync.busy === 'save' ? <Loader2 size={15} className="mx-auto animate-spin" /> : t('common.save')}
         </button>
       </div>
+
+      {existing && (
+        <button
+          type="button"
+          onClick={() => setConfirmRemove(true)}
+          disabled={sync.busy === 'connection'}
+          className="flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-[color:var(--m-rowbr)] text-body font-bold text-[color:var(--m-st-danger)] disabled:opacity-50"
+        >
+          <Trash2 size={15} strokeWidth={2.2} />
+          {t('docsync.connection.remove')}
+        </button>
+      )}
+
+      <MConfirmSheet
+        open={confirmRemove}
+        onClose={() => setConfirmRemove(false)}
+        title={t('docsync.connection.remove')}
+        message={t('docsync.connection.confirmRemove')}
+        confirmLabel={t('docsync.connection.remove')}
+        cancelLabel={t('common.cancel')}
+        danger
+        onConfirm={() => {
+          setConfirmRemove(false)
+          if (existing) void sync.removeConnection(existing.id).then(ok => { if (ok) onRemoved() })
+        }}
+      />
     </div>
   )
 }
@@ -540,55 +589,35 @@ function ScopeView({
   suggestedName,
   sync,
   onBound,
+  onEditConnection,
 }: {
   connectionId: number
   suggestedName: string
   sync: ReturnType<typeof useDocSync>
   onBound: () => void
+  /** Back to the stored connection, to change the login or remove it before choosing a folder. */
+  onEditConnection: () => void
 }) {
   const { t } = useTranslation()
-  const [scopes, setScopes] = useState<Awaited<ReturnType<typeof sync.loadScopes>>['scopes'] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [name, setName] = useState(suggestedName)
-  const [working, setWorking] = useState<string | null>(null)
-
-  // `loadScopes`, not `sync`: the hook hands back a fresh object on every
-  // render of the panel above, so depending on it re-listed the provider's
-  // folders each time anything up there changed. The callback itself is
-  // stable. Taken out of `sync` first, because calling it as `sync.loadScopes`
-  // inside the effect makes the whole object a dependency again.
-  const { loadScopes } = sync
-  useEffect(() => {
-    let cancelled = false
-    void (async () => {
-      const res = await loadScopes(connectionId)
-      if (cancelled) return
-      setScopes(res.scopes)
-      setError(res.error ?? null)
-    })()
-    return () => { cancelled = true }
-  }, [connectionId, loadScopes])
-
-  const bind = async (scope: { scopeKey: string; label: string; remoteRootId: string | null; remoteRootPath: string | null }) => {
-    setWorking(scope.scopeKey)
-    const ok = await sync.createLink({
-      connectionId,
-      scopeKey: scope.scopeKey,
-      remoteRootId: scope.remoteRootId,
-      remoteRootPath: scope.remoteRootPath,
-      remoteLabel: scope.label,
-      direction: 'both',
-      deletePolicy: 'unlink',
-      conflictPolicy: 'manual',
-      syncEnabled: true,
-    })
-    setWorking(null)
-    if (ok) onBound()
-  }
+  const { scopes, error, name, setName, working, bind, createAndBind } = useScopePicker({
+    connectionId,
+    suggestedName,
+    sync,
+    onBound,
+  })
 
   return (
     <div className="mt-3 flex flex-col gap-3">
       <p className="font-geist text-[0.71875rem] leading-snug text-m-muted">{t('docsync.scope.intro')}</p>
+
+      <button
+        type="button"
+        onClick={onEditConnection}
+        className="flex h-9 items-center justify-center gap-1.5 self-start rounded-full bg-[color:var(--m-ic)] px-3 font-geist text-caption font-bold text-m-ink"
+      >
+        <KeyRound size={12} strokeWidth={2.2} />
+        {t('docsync.connection.edit')}
+      </button>
 
       <div className="flex gap-2">
         <input
@@ -599,18 +628,11 @@ function ScopeView({
         />
         <button
           type="button"
-          onClick={() => {
-            const trimmed = name.trim()
-            if (!trimmed) return
-            setWorking('__new__')
-            void sync.createScope(connectionId, trimmed)
-              .then(scope => { if (scope) return bind(scope) })
-              .finally(() => setWorking(null))
-          }}
+          onClick={() => void createAndBind()}
           disabled={!name.trim() || working !== null}
           className="flex h-11 flex-none items-center gap-2 rounded-2xl bg-m-act px-4 text-[0.8125rem] font-bold text-m-actfg disabled:opacity-50"
         >
-          {working === '__new__' ? <Loader2 size={15} className="animate-spin" /> : <FolderPlus size={15} strokeWidth={2.2} />}
+          {working === NEW_SCOPE ? <Loader2 size={15} className="animate-spin" /> : <FolderPlus size={15} strokeWidth={2.2} />}
           {t('docsync.scope.createAction')}
         </button>
       </div>
@@ -639,7 +661,7 @@ function ScopeView({
               type="button"
               onClick={() => void bind(s)}
               disabled={working !== null}
-              className="flex items-center gap-[10px] rounded-2xl border border-[color:var(--m-rowbr)] bg-m-sheetop px-3 py-[9px] text-left disabled:opacity-50"
+              className="flex items-center gap-[10px] rounded-2xl border border-[color:var(--m-rowbr)] bg-m-sheetop px-3 py-[9px] text-start disabled:opacity-50"
             >
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[0.78125rem] font-semibold text-m-ink">{s.label}</span>
@@ -679,7 +701,7 @@ function StoreRow({
     <button
       type="button"
       onClick={onClick}
-      className="flex items-center gap-[10px] rounded-2xl border border-[color:var(--m-rowbr)] bg-m-sheetop px-3 py-[9px] text-left"
+      className="flex items-center gap-[10px] rounded-2xl border border-[color:var(--m-rowbr)] bg-m-sheetop px-3 py-[9px] text-start"
     >
       <span className="flex h-9 w-9 flex-none items-center justify-center rounded-[10px] bg-[color:var(--m-ic)] text-m-ink">
         {Icon ? <Icon className="h-4 w-4" /> : null}
@@ -742,7 +764,7 @@ function LaneRow({
       onClick={onClick}
       disabled={disabled}
       aria-pressed={active}
-      className={`flex h-11 items-center gap-[10px] overflow-hidden rounded-2xl px-3 text-left ${
+      className={`flex h-11 items-center gap-[10px] overflow-hidden rounded-2xl px-3 text-start ${
         active ? 'bg-m-act text-m-actfg' : 'trek-docsync-lane-off-m bg-[color:var(--m-inner)] text-m-faint'
       }`}
     >
@@ -811,18 +833,6 @@ function Empty({ text, hint }: { text: string; hint?: string }) {
   )
 }
 
-/** A folder name from the trip's own title, so nobody has to invent one. */
-function slugFor(title: string | undefined, tripId: number | string): string {
-  const base = (title || 'trek')
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '')
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 40)
-  return `${base || 'trek'}-${tripId}`
-}
-
 /**
  * The documents that changed in both places, with the way out.
  *
@@ -860,7 +870,7 @@ function MConflicts({
         <button
           type="button"
           onClick={() => setOpen(v => !v)}
-          className="flex w-full items-center justify-between gap-3 text-left"
+          className="flex w-full items-center justify-between gap-3 text-start"
         >
           {heading}
           <span className="shrink-0 font-geist text-[0.6875rem] font-bold text-m-ink">
@@ -868,7 +878,7 @@ function MConflicts({
           </span>
         </button>
       ) : (
-        <div className="flex w-full items-center justify-between gap-3 text-left">
+        <div className="flex w-full items-center justify-between gap-3 text-start">
           {heading}
           <span className="shrink-0 font-geist text-[0.6875rem] font-bold tabular-nums text-m-ink">{count}</span>
         </div>

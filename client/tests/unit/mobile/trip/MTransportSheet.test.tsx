@@ -7,7 +7,7 @@ import { buildPlanner, buildShell } from '../../../helpers/mobileTrip'
 import { resetAllStores, seedStore } from '../../../helpers/store'
 import { fireEvent, render, screen } from '../../../helpers/render'
 
-// FE-MOB-TRSH-001 to FE-MOB-TRSH-024
+// FE-MOB-TRSH-001 to FE-MOB-TRSH-035
 
 vi.mock('../../../../src/utils/fileDownload', () => ({ openFile: vi.fn() }))
 
@@ -300,5 +300,176 @@ describe('MTransportSheet', () => {
     render(<MTransportSheet planner={makePlanner()} shell={shell} />)
     fireEvent.click(screen.getByRole('button', { name: 'Close' }))
     expect(shell.closeSheet).toHaveBeenCalledTimes(1)
+  })
+
+  /**
+   * #2456: the phone map is one day's picture, so "On map" has to land on a day the
+   * booking runs on. The Transports tab lists the whole trip, and the day the chips hold
+   * can be any other day: switched on from there, the route went to a map that frames,
+   * and (once booking routes follow the day) draws, a different day.
+   *
+   * The booking's day goes in after the view switch: entering the map re-selects the day
+   * the shell still holds (MTripShell.toggleView), so it has to come last to win.
+   */
+  describe('On map lands on a day the booking runs on (#2456)', () => {
+    const DAYS = [
+      { id: 3, trip_id: 1, day_number: 1, date: '2026-05-01' },
+      { id: 4, trip_id: 1, day_number: 2, date: '2026-05-02' },
+      { id: 5, trip_id: 1, day_number: 3, date: '2026-05-03' },
+    ]
+
+    it("FE-MOB-TRSH-025: from another day, switches the map to the booking's own day", () => {
+      const planner = makePlanner({ days: DAYS, selectedDayId: 5 })
+      const shell = makeShell({ trTab: 'transports', view: 'plan' })
+      render(<MTransportSheet planner={planner} shell={shell} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'On map' }))
+
+      expect(planner.toggleConnection).toHaveBeenCalledWith(7)
+      expect(planner.handleSelectDay).toHaveBeenCalledWith(3, false)
+      expect(planner.setExpandedDayIds).toHaveBeenCalledWith(new Set([3]))
+      const viewSwitch = vi.mocked(shell.toggleView).mock.invocationCallOrder[0]
+      const daySwitches = vi.mocked(planner.handleSelectDay).mock.invocationCallOrder
+      expect(daySwitches[daySwitches.length - 1]).toBeGreaterThan(viewSwitch)
+    })
+
+    it("FE-MOB-TRSH-026: with the map already in front, still moves it to the booking's day", () => {
+      const planner = makePlanner({ days: DAYS, selectedDayId: 5 })
+      const shell = makeShell({ trTab: 'transports', view: 'map' })
+      render(<MTransportSheet planner={planner} shell={shell} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'On map' }))
+
+      expect(shell.toggleView).not.toHaveBeenCalled()
+      expect(planner.handleSelectDay).toHaveBeenCalledWith(3, false)
+      expect(planner.setExpandedDayIds).toHaveBeenCalledWith(new Set([3]))
+    })
+
+    it("FE-MOB-TRSH-027: keeps the selected day while it is one of the booking's days", () => {
+      // Overnight: departs on day 3, lands on day 4, which the chips hold.
+      const overnight = { ...FLIGHT, end_day_id: 4 } as unknown as Reservation
+      const planner = makePlanner({ days: DAYS, selectedDayId: 4, reservations: [overnight] })
+      render(<MTransportSheet planner={planner} shell={makeShell({ trTab: 'plan', view: 'plan' })} />)
+
+      fireEvent.click(screen.getByRole('button', { name: 'On map' }))
+
+      expect(planner.toggleConnection).toHaveBeenCalledWith(7)
+      expect(planner.handleSelectDay).not.toHaveBeenCalled()
+      expect(planner.setExpandedDayIds).not.toHaveBeenCalled()
+    })
+
+    it('FE-MOB-TRSH-028: leaves the all days view and a booking bound to no day alone', () => {
+      const unbound = { ...FLIGHT, day_id: null, end_day_id: null } as unknown as Reservation
+      const allDays = makePlanner({ days: DAYS, selectedDayId: null })
+      const { unmount } = render(<MTransportSheet planner={allDays} shell={makeShell({ trTab: 'transports', view: 'map' })} />)
+      fireEvent.click(screen.getByRole('button', { name: 'On map' }))
+      expect(allDays.handleSelectDay).not.toHaveBeenCalled()
+      unmount()
+
+      const noDay = makePlanner({ days: DAYS, selectedDayId: 5, reservations: [unbound] })
+      render(<MTransportSheet planner={noDay} shell={makeShell({ trTab: 'transports', view: 'plan' })} />)
+      fireEvent.click(screen.getByRole('button', { name: 'On map' }))
+      expect(noDay.toggleConnection).toHaveBeenCalledWith(7)
+      expect(noDay.handleSelectDay).not.toHaveBeenCalled()
+    })
+
+    // A booking already switched on is still left off another day's map, which is also
+    // where "Always show booking routes" leaves every booking. The button follows the map
+    // there, and a tap takes it to the booking rather than switching the route off unseen.
+    it('FE-MOB-TRSH-029: a booking switched on but not drawn on this day reads off and a tap moves to its day', () => {
+      const planner = makePlanner({ days: DAYS, selectedDayId: 5, visibleConnections: [7] })
+      const shell = makeShell({ trTab: 'transports', view: 'plan' })
+      render(<MTransportSheet planner={planner} shell={shell} />)
+
+      const btn = screen.getByRole('button', { name: 'On map' })
+      expect(btn).toHaveAttribute('aria-pressed', 'false')
+      fireEvent.click(btn)
+
+      expect(planner.toggleConnection).not.toHaveBeenCalled()
+      expect(shell.closeSheet).toHaveBeenCalledTimes(1)
+      expect(shell.setTrTab).toHaveBeenCalledWith('plan')
+      expect(planner.handleSelectDay).toHaveBeenCalledWith(3, false)
+      expect(planner.setExpandedDayIds).toHaveBeenCalledWith(new Set([3]))
+    })
+
+    it("FE-MOB-TRSH-030: on one of the booking's days a switched-on route reads on and a tap hides it in place", () => {
+      const overnight = { ...FLIGHT, end_day_id: 4 } as unknown as Reservation
+      const planner = makePlanner({ days: DAYS, selectedDayId: 4, reservations: [overnight], visibleConnections: [7] })
+      const shell = makeShell({ trTab: 'plan', view: 'map' })
+      render(<MTransportSheet planner={planner} shell={shell} />)
+
+      const btn = screen.getByRole('button', { name: 'On map' })
+      expect(btn).toHaveAttribute('aria-pressed', 'true')
+      fireEvent.click(btn)
+
+      expect(planner.toggleConnection).toHaveBeenCalledWith(7)
+      expect(shell.closeSheet).not.toHaveBeenCalled()
+      expect(planner.handleSelectDay).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('a booking the chat points at', () => {
+    it('FE-MOB-TRSH-031: ?booking= of a transport opens its sheet once and leaves the URL', () => {
+      const shell = makeShell({ sheet: null })
+      render(<MTransportSheet planner={makePlanner()} shell={shell} />, { initialEntries: ['/trips/1?booking=7'] })
+      expect(shell.openSheet).toHaveBeenCalledTimes(1)
+      expect(shell.openSheet).toHaveBeenCalledWith('transport', { reservationId: 7 })
+    })
+
+    it('FE-MOB-TRSH-032: a booking that is no transport, or an id the trip does not hold, opens nothing', () => {
+      const dinner = { ...FLIGHT, id: 8, type: 'restaurant', endpoints: [] } as unknown as Reservation
+      const shell = makeShell({ sheet: null })
+      render(<MTransportSheet planner={makePlanner({ reservations: [FLIGHT, dinner] })} shell={shell} />, {
+        initialEntries: ['/trips/1?booking=8'],
+      })
+      render(<MTransportSheet planner={makePlanner()} shell={shell} />, { initialEntries: ['/trips/1?booking=99'] })
+      expect(shell.openSheet).not.toHaveBeenCalled()
+    })
+
+    it('FE-MOB-TRSH-033: with &map=1 the route is switched on and the map shown on its day, no sheet opened', () => {
+      const days = [
+        { id: 3, trip_id: 1, day_number: 1, date: '2026-05-01' },
+        { id: 5, trip_id: 1, day_number: 3, date: '2026-05-03' },
+      ]
+      const planner = makePlanner({ days, selectedDayId: 5 })
+      const shell = makeShell({ sheet: null, trTab: 'transports', view: 'plan' })
+      render(<MTransportSheet planner={planner} shell={shell} />, { initialEntries: ['/trips/1?booking=7&map=1'] })
+      expect(shell.openSheet).not.toHaveBeenCalled()
+      expect(planner.toggleConnection).toHaveBeenCalledTimes(1)
+      expect(planner.toggleConnection).toHaveBeenCalledWith(7)
+      expect(shell.setTrTab).toHaveBeenCalledWith('plan')
+      expect(shell.toggleView).toHaveBeenCalledTimes(1)
+      expect(planner.handleSelectDay).toHaveBeenCalledWith(3, false)
+    })
+  })
+
+  // #2701: a leg row opens the sheet on that leg, not on the booking's first one.
+  describe('opened from one leg of a multi-leg train', () => {
+    const TRAIN = {
+      ...FLIGHT, id: 8, type: 'train', title: 'Takayama to Kyoto', confirmation_number: null,
+      metadata: JSON.stringify({
+        train_number: 'Hida 6', seat: '10-4C',
+        legs: [
+          { from: 'Takayama', to: 'Nagoya', train_number: 'Hida 6', seat: '10-4C', platform: '1', dep_time: '09:40', arr_time: '12:10' },
+          { from: 'Nagoya', to: 'Kyoto', train_number: 'Nozomi 67', seat: '4-5A', platform: '14', dep_time: '12:35', arr_time: '13:10' },
+        ],
+      }),
+    } as unknown as Reservation
+
+    it("FE-MOB-TRSH-034: shows the second leg's own train, seat, platform and times", () => {
+      render(<MTransportSheet planner={makePlanner({ reservations: [TRAIN] })} shell={makeShell({ sheet: { id: 'transport', payload: { reservationId: 8, legIndex: 1 } } })} />)
+      expect(screen.getByText(/Nozomi 67/)).toBeInTheDocument()
+      expect(screen.getByText('4-5A')).toBeInTheDocument()
+      expect(screen.getByText('14')).toBeInTheDocument()
+      expect(screen.getByText('12:35')).toBeInTheDocument()
+      expect(screen.getByText('13:10')).toBeInTheDocument()
+      expect(screen.queryByText('10-4C')).not.toBeInTheDocument()
+    })
+
+    it('FE-MOB-TRSH-035: without a leg the sheet still shows the booking as a whole', () => {
+      render(<MTransportSheet planner={makePlanner({ reservations: [TRAIN] })} shell={makeShell({ sheet: { id: 'transport', payload: { reservationId: 8 } } })} />)
+      expect(screen.getByText('10-4C')).toBeInTheDocument()
+      expect(screen.queryByText('4-5A')).not.toBeInTheDocument()
+    })
   })
 })

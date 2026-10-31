@@ -4,21 +4,23 @@ How to update TREK to a newer version without losing data.
 
 ## Before You Update
 
-Back up your data first. Go to Admin Panel → Backups and create a manual backup, or copy your `./data` and `./uploads` directories to a safe location. See [Backups](Backups) for details.
+Back up your data first. Go to Admin Panel → **Backup** and create a manual backup, or copy your `./data` and `./uploads` directories to a safe location. See [Backups](Backups) for details.
 
 ## Image Tags
 
 | Tag | Example | Behavior |
 |---|---|---|
 | `latest` | `mauriceboe/trek:latest` | Always the newest release across all major versions |
-| Major version | `mauriceboe/trek:4` | Latest release pinned to that major version |
-| Full version | `mauriceboe/trek:4.0.0` | Exact release; never changes |
+| Major version | `mauriceboe/trek:5` | Latest release pinned to that major version |
+| Minor version | `mauriceboe/trek:5.0` | Latest patch of that minor version; never moves to the next minor. Published from 5.0.0 on: 4.x releases have no minor tag, so pin those by major or full version |
+| Full version | `mauriceboe/trek:5.0.0` | Exact release; never changes |
+| Prerelease | `mauriceboe/trek:latest-pre` | The newest test build of the next version. For trying it out on a copy of your data, not for the instance you rely on |
 
-Use `latest` or a major-version tag if you want updates on each redeploy. Use a full version tag for explicit control — update by changing the tag, not by re-pulling.
+Use `latest` or a major-version tag if you want updates on each redeploy. A minor-version tag still brings fixes but waits for you to move to the next minor, which is where larger changes and database upgrades usually land. Use a full version tag for explicit control: update by changing the tag, not by re-pulling.
 
 ## Docker Compose (Recommended)
 
-**`latest` or major-version tag:**
+**`latest`, major-version or minor-version tag:**
 
 ```bash
 docker compose pull && docker compose up -d
@@ -28,7 +30,7 @@ This pulls the newest matching image and recreates the container with your exist
 
 **Pinned full-version tag:**
 
-Edit `docker-compose.yml`, update the tag in the `image:` line (e.g. `4.0.0` → `4.0.1`), then redeploy:
+Edit `docker-compose.yml`, update the tag in the `image:` line (e.g. `5.0.0` → `5.0.1`), then redeploy:
 
 ```bash
 docker compose up -d
@@ -80,6 +82,20 @@ See [Install-Helm](Install-Helm) for the full installation walkthrough and value
 
 TREK runs any pending database migrations automatically at startup. No manual migration steps are required after pulling a new image.
 
+Migrations only go forward, so going back to an older image means going back to a copy of the database from before the update. Images from 5.0 on refuse to start on a database a newer TREK has migrated. Images from 4.3.x and earlier do not check this: they start on the newer database without a warning, so restore the copy before you start one of them.
+
+TREK takes that copy itself. Right before a startup applies pending migrations, it writes the database to `data/pre-migrate-<schema>-<time>.db` (next to `travel.db`, or next to the file `TREK_DB_FILE` names) and logs the path. `<schema>` names what the copy holds: `legacy-244` for a 4.3.3 install, or the last migration's number for a newer one. The newest three are kept (`TREK_DB_PRE_MIGRATE_SNAPSHOT_KEEP`). A restart with nothing to migrate and a brand-new install take no copy.
+
+If the copy cannot be written (the disk is full, or the data directory is read-only), TREK does not migrate and refuses to start, with a message naming the path. Free some space and start again. If you cannot, and you have a backup of your own, `TREK_DB_PRE_MIGRATE_SNAPSHOT=false` starts without the copy.
+
+To go back to the previous image after an update:
+
+1. Stop TREK.
+2. Copy the `pre-migrate-…db` file over `data/travel.db` and delete `data/travel.db-wal` and `data/travel.db-shm`.
+3. Start the previous image.
+
+An image from 5.0 on that refuses a newer database names the copy it can run, if one is in the data directory. An image from 4.3.x or earlier neither refuses nor points at the copy, so for those, steps 1 to 3 are the only way back. Uploads are not part of this copy; they are not changed by migrations. The copy is a safety net for the update, not a backup: keep taking backups as described in [Backups](Backups).
+
 ## After the Update
 
 The first time a user opens TREK on the desktop after an update, a notice headed **Update installed** opens on top of the app: three cards with the headline features of that release, a note from the maintainer, a **Release notes** link to the full notes on GitHub, and links for supporting the project. Every user sees it once per version. Closing it keeps it closed on that version, and the next update brings it back, a patch release included. The phone does not show it.
@@ -96,6 +112,24 @@ A few defaults change with 4.3.0. None of them needs a manual step, but they are
 - **SSO sessions on an OIDC-only instance last 30 days.** The login page sends `remember=1` on that path, so the session gets the `SESSION_DURATION_REMEMBER` lifetime (default `30d`) instead of `SESSION_DURATION` (default `24h`). Lower `SESSION_DURATION_REMEMBER` if that is too long. With password login on, the SSO button follows the Remember-me switch instead. See [OIDC-SSO](OIDC-SSO).
 - **Booked nights get a stop.** A migration puts every existing stay that has a place on its check-in day as a hotel stop, so the trips you already have show their hotels in the [Road-Trip](Road-Trip) view without anyone re-saving a booking. Under **Days** nothing changes: that stop stays hidden behind the badge the booking already shows. See [Accommodations](Accommodations).
 - **Two things are on by default.** The **Links** tab in Collab, which an admin switches off under **Admin → Addons**, and the routing counters, daily totals of the route requests the planner makes that never leave the instance. An admin reads them at `/api/route-usage/summary`; an `app_settings` row named `route_usage_enabled` with the value `false` switches them off.
+
+## Upgrading to 4.3.1
+
+Two things change with 4.3.1. Neither needs a manual step on Docker, but they are worth knowing before you pull the image:
+
+- **Booked nights lead their day.** A migration moves every booked night to the head of its check-in day, behind only a stop whose own time is at or before the check-in, and the stops without an hour follow it: a hotel booked for ten in the morning is reached at ten in the [Road-Trip](Road-Trip) view, not at a quarter past twelve behind a whole day of untimed stops. A night booked for the end of a driving day heads that day too when its stops carry no time of their own, so such a day now reads hotel first. A via point drawn on the road into that hotel from the stop that is now last is removed, because that leg no longer exists in the day, the same way a drag would remove it; the other vias follow their stops. Under **Days** nothing changes. To put a hotel back at the end, drag it down the day in the Road Trip rail, or give the first stop after it a start time at or before the check-in, which brings the untimed stops behind that one along; a time on the last stop alone leaves the hotel in the middle of the day. See [Accommodations](Accommodations#on-the-route).
+- **Source installs need a build toolchain, or `--ignore-scripts`.** The server runs better-sqlite3 13, which ships its binaries inside the package, so nothing is compiled any more; the Docker image and the Helm chart are unaffected. On an install that runs `npm ci` itself, outside Docker, a lockfile-driven `npm ci` still runs node-gyp against those binaries and stops without Python 3 and a C++ toolchain (`build-essential` on Debian/Ubuntu, the Xcode Command Line Tools on macOS, the Visual Studio Build Tools on Windows; npm/cli#9837). Either keep those installed, as [Development-environment](Development-environment) lists them, or run `npm ci --ignore-scripts`, which is what the image does.
+
+## Upgrading to 5.0
+
+5.0 is a large release. Apart from the point below about the Places API, updating needs no manual step on any install method: migrations run at startup, and TREK copies the database first (see [Database Migrations](#database-migrations)).
+
+- **A new look, and a phone interface of its own.** Dialogs are redesigned and the phone gets its own screens instead of a squeezed desktop layout. Open apps switch over after **Reload page** (see [Open apps after an update](#open-apps-after-an-update)).
+- **New features.** Tours, TREK Studio for journeys, the AI Assistant addon, notifications in an inbox, trip settings and a Help Center inside the app. The addons are switched on or off under **Admin → Addons**; see [Addons-Overview](Addons-Overview) and [Help-Center](Help-Center).
+- **AI assistant secrets are encrypted** with your `ENCRYPTION_KEY` like the other stored secrets, and the connections need no action on update. A key rotation covers them; see [Encryption-Key-Rotation](Encryption-Key-Rotation).
+- **Web Push needs no VAPID setup.** TREK generates its key pair on first start and keeps it in the database. See [Environment-Variables](Environment-Variables#web-push).
+- **Remove any `APP_VERSION` override.** The version now comes from the image itself. A leftover `APP_VERSION=` line in your compose file, `.env` or Portainer stack only gets in the way.
+- **Tours asks the TREK Places API first.** The grades, surfaces and kinds of way under a planned tour and the horse routes around the map are read from `https://places.liketrek.com`, and the Overpass mirrors are asked only when it has no answer. An `OVERPASS_URL` pointed at an internal Overpass therefore no longer keeps these lookups inside your network: set `TREK_PLACES_ENABLED=false`, or point `TREK_PLACES_URL` at a copy you run yourself. [TREK-Places-API](TREK-Places-API#what-leaves-your-instance) lists what is sent.
 
 ## Encryption Key Note
 
@@ -126,21 +160,27 @@ journalctl -u trek -n 50
 
 Open the **Stacks** list, click the TREK stack, then click **Redeploy**.
 
-**`latest` or major-version tag** — enable the **Re-pull image and redeploy** switch before confirming. Portainer pulls the newest matching image and recreates the container.
+**`latest`, major-version or minor-version tag**: enable the **Re-pull image and redeploy** switch before confirming. Portainer pulls the newest matching image and recreates the container.
 
 ![Re-pull image and redeploy switch ticked, with arrows pointing to the switch and the Update button](assets/portainer-force-pull.png)
 
-**Pinned full-version tag** (e.g. `4.0.0`) — edit the stack, update the tag in the `image:` line, then click **Update the stack**. No re-pull switch needed; the tag change forces a fresh pull.
+**Pinned full-version tag** (e.g. `5.0.0`), edit the stack, update the tag in the `image:` line, then click **Update the stack**. No re-pull switch needed; the tag change forces a fresh pull.
 
 ![Edit stack page with an arrow pointing to the image tag in the compose editor](assets/portainer-update-version.png)
 
 ![Edit stack page with an arrow pointing to the Update the stack button](assets/portainer-update-stack.png)
+
+Portainer's **Recreate** on a single container keeps that container's environment, which on images before 5.0 included the previous release's `APP_VERSION`. TREK then kept reporting the old version and open apps did not switch to the new interface. Images from 5.0 on take the version from a file inside the image, so a recreated container reports the image it actually runs.
 
 See [Install-Portainer](Install-Portainer) for the full installation walkthrough.
 
 ## Unraid
 
 In the Unraid Docker tab, click the TREK container and select **Update**. Unraid will pull the latest image and restart with the same volumes.
+
+## Open apps after an update
+
+A browser tab or installed app that stays open while you update notices the new version as soon as it reconnects to the restarted server. It shows a small notice with **Reload page**, which loads the new version without waiting for the next start; a page that is closed and opened again switches on its own. The notice stays away while the device is offline and can be closed until the next start.
 
 ## Next Steps
 

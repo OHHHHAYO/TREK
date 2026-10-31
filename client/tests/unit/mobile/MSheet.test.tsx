@@ -249,4 +249,94 @@ describe('MSheet', () => {
     );
     expect(document.body.style.overflow).toBe('');
   });
+
+  it('FE-MOB-SHEET-016: Escape closes only the sheet on top, the one under it on the next press', () => {
+    const onCloseBase = vi.fn();
+    const onCloseTop = vi.fn();
+    const { rerender } = render(
+      <>
+        <MSheet open onClose={onCloseBase} ariaLabel="Trip"><span>Trip form</span></MSheet>
+        <MSheet open onClose={onCloseTop} ariaLabel="Remove days?"><span>Question</span></MSheet>
+      </>,
+    );
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onCloseTop).toHaveBeenCalledTimes(1);
+    expect(onCloseBase).not.toHaveBeenCalled();
+
+    rerender(
+      <>
+        <MSheet open onClose={onCloseBase} ariaLabel="Trip"><span>Trip form</span></MSheet>
+        <MSheet open={false} onClose={onCloseTop} ariaLabel="Remove days?"><span>Question</span></MSheet>
+      </>,
+    );
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onCloseBase).toHaveBeenCalledTimes(1);
+    expect(onCloseTop).toHaveBeenCalledTimes(1);
+  });
+
+  it('FE-MOB-SHEET-017: a sheet re-rendered with a fresh onClose stays under the one opened after it', () => {
+    const onCloseTop = vi.fn();
+    const baseCalls: number[] = [];
+    const renderBoth = (round: number) => (
+      <>
+        <MSheet open onClose={() => baseCalls.push(round)} ariaLabel="Trip"><span>Trip form {round}</span></MSheet>
+        <MSheet open onClose={onCloseTop} ariaLabel="Remove days?"><span>Question</span></MSheet>
+      </>
+    );
+    const { rerender } = render(renderBoth(1));
+    // Typing into the form under the question re-renders it with a new handler.
+    rerender(renderBoth(2));
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    expect(onCloseTop).toHaveBeenCalledTimes(1);
+    expect(baseCalls).toEqual([]);
+  });
+
+  describe('the unsaved-changes question', () => {
+    function Form({ open, onClose }: { open: boolean; onClose: () => void }) {
+      const [name, setName] = React.useState('');
+      return (
+        <MSheet open={open} onClose={onClose} ariaLabel="Form" discardGuard={{ name }}>
+          <input aria-label="Name" value={name} onChange={e => setName(e.target.value)} />
+        </MSheet>
+      );
+    }
+    const backdrop = () => screen.getByRole('dialog', { name: 'Form' }).parentElement!.parentElement!;
+
+    it('FE-MOB-SHEET-020: a tap on the scrim asks before throwing a change away, and keep editing stays', () => {
+      const onClose = vi.fn();
+      render(<Form open onClose={onClose} />);
+      const input = screen.getByRole('textbox', { name: 'Name' });
+      fireEvent.pointerDown(input);
+      fireEvent.change(input, { target: { value: 'Lisbon' } });
+
+      fireEvent.click(backdrop());
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByRole('alertdialog')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: /keep editing|common.keepEditing/i }));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(input).toHaveValue('Lisbon');
+
+      fireEvent.keyDown(document, { key: 'Escape' });
+      fireEvent.click(screen.getByRole('button', { name: /discard|common.discard/i }));
+      expect(onClose).toHaveBeenCalledTimes(1);
+    });
+
+    it('FE-MOB-SHEET-021: without a change it closes at once, and a reopened sheet starts afresh', () => {
+      const onClose = vi.fn();
+      const { rerender } = render(<Form open onClose={onClose} />);
+      fireEvent.pointerDown(screen.getByRole('textbox', { name: 'Name' }));
+      fireEvent.click(backdrop());
+      expect(onClose).toHaveBeenCalledTimes(1);
+
+      rerender(<Form open={false} onClose={onClose} />);
+      rerender(<Form open onClose={onClose} />);
+      fireEvent.click(backdrop());
+      expect(onClose).toHaveBeenCalledTimes(2);
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+  });
 });
+

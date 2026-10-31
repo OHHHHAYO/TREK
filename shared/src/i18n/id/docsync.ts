@@ -71,7 +71,7 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'Dihapus di TREK',
   'docsync.state.scope_drift': 'Dipindahkan keluar folder',
 
-  'docsync.conflict.resolve': "Selesaikan {count}",
+  'docsync.conflict.resolve': 'Selesaikan {count}',
 
   'docsync.conflict.title': 'Kedua salinan berubah',
   'docsync.conflict.keepTrek': 'Pertahankan versi TREK',
@@ -134,7 +134,7 @@ const docsync: TranslationStrings = {
 
   // ── Satu pasangan ──────────────────────────────────────────────────────────
   'docsync.binding.settings': 'Pengaturan',
-  'docsync.binding.folder': 'Folder',
+  'docsync.binding.folder': 'Folder', // same-as-en
   'docsync.binding.lastRun': 'Terakhir dijalankan',
   'docsync.binding.autoOff': 'Dijeda',
   'docsync.binding.neverRun': 'belum pernah dijalankan',
@@ -178,8 +178,15 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': 'Transfer tidak berhasil.',
 
   'docsync.error.unknown_provider': 'Penyedia ini tidak tersedia di instans ini.',
-  'docsync.error.provider_disabled': 'Dijeda: administrator menonaktifkan penyedia ini. Sinkronisasi berlanjut setelah penyedia diaktifkan kembali.',
+  'docsync.error.provider_disabled':
+    'Dijeda: administrator menonaktifkan penyedia ini. Sinkronisasi berlanjut setelah penyedia diaktifkan kembali.',
   'docsync.binding.reconnect': 'Hubungkan ulang',
+  'docsync.connection.title': 'Koneksi',
+  'docsync.connection.hint': 'Alamat dan login yang dipakai TREK untuk penyimpanan ini.',
+  'docsync.connection.edit': 'Edit koneksi',
+  'docsync.connection.remove': 'Hapus koneksi',
+  'docsync.connection.confirmRemove':
+    'TREK melupakan alamat dan login penyimpanan ini, dan semua sinkronisasi perjalanan ini melaluinya berhenti. Dokumen tetap ada di TREK dan di penyimpanan.',
 };
 
 export default docsync;

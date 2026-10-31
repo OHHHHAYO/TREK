@@ -1,4 +1,3 @@
-import { createZodDto } from 'nestjs-zod';
 import {
   journeyAddTripRequestSchema,
   journeyContributorRequestSchema,
@@ -10,13 +9,17 @@ import {
   journeyGalleryVideoRequestSchema,
   journeyLinkPhotoRequestSchema,
   journeyPhotoUpdateRequestSchema,
+  journeyPhotosMoveRequestSchema,
   journeyPreferencesRequestSchema,
   journeyProviderPhotosRequestSchema,
   journeyReorderEntriesRequestSchema,
+  journeyReorderEntryPhotosRequestSchema,
   journeyShareLinkRequestSchema,
   journeyUpdateRequestSchema,
   bookSaveRequestSchema,
 } from '@trek/shared';
+
+import { createZodDto } from 'nestjs-zod';
 
 /**
  * Server-side createZodDto wrappers over the @trek/shared journey contracts.
@@ -41,6 +44,7 @@ export class JourneyAddTripDto extends createZodDto(journeyAddTripRequestSchema)
 export class JourneyEntryCreateDto extends createZodDto(journeyEntryCreateRequestSchema) {}
 export class JourneyEntryUpdateDto extends createZodDto(journeyEntryUpdateRequestSchema) {}
 export class JourneyReorderEntriesDto extends createZodDto(journeyReorderEntriesRequestSchema) {}
+export class JourneyReorderEntryPhotosDto extends createZodDto(journeyReorderEntryPhotosRequestSchema) {}
 export class JourneyContributorAddDto extends createZodDto(journeyContributorRequestSchema) {}
 export class JourneyContributorUpdateDto extends createZodDto(journeyContributorUpdateRequestSchema) {}
 export class JourneyPreferencesDto extends createZodDto(journeyPreferencesRequestSchema) {}
@@ -48,6 +52,8 @@ export class JourneyShareLinkDto extends createZodDto(journeyShareLinkRequestSch
 export class JourneyProviderPhotosDto extends createZodDto(journeyProviderPhotosRequestSchema) {}
 export class JourneyLinkPhotoDto extends createZodDto(journeyLinkPhotoRequestSchema) {}
 export class JourneyPhotoUpdateDto extends createZodDto(journeyPhotoUpdateRequestSchema) {}
+/** Photos of an entry moved to another entry: strict, a new route with nothing older to keep answering. */
+export class JourneyPhotosMoveDto extends createZodDto(journeyPhotosMoveRequestSchema) {}
 export class JourneyEntryPhotoUploadDto extends createZodDto(journeyEntryPhotoUploadRequestSchema) {}
 export class JourneyGalleryVideoDto extends createZodDto(journeyGalleryVideoRequestSchema) {}
 

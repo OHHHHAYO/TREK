@@ -1,10 +1,11 @@
 import { withHotelBookends } from './RouteCalculator'
 import { getTransportRouteEndpoints, getTransportForDay, getMergedItems, isCarrierTransport, hasCarrierEndpointOnDay } from '../../utils/dayMerge'
 import { getDayBookendHotels, shouldDrawMorningLeg, shouldDrawEveningLeg, type CarrierEdge } from '../../utils/dayOrder'
-import { withinDriveRange } from '../../utils/geo'
-import type { Accommodation, AssignmentsMap, Day, Reservation } from '../../types'
+import { withinDriveRange } from '@trek/shared/roadtrip'
+import type { Accommodation, AssignmentsMap, Day, Place, Reservation } from '../../types'
+import { projectedById, type TourStageStops } from './dayTourProjection'
 
-export const TRANSPORT_TYPES = ['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'transit', 'transport_other']
+export const TRANSPORT_TYPES = ['flight', 'train', 'bus', 'car', 'taxi', 'bicycle', 'cruise', 'ferry', 'cable_car', 'transit', 'transport_other']
 
 /** A waypoint on a day's drive, carrying the per-leg modes `resolveLegMode` reads off it. */
 export interface DayRoutePoint {
@@ -13,6 +14,21 @@ export interface DayRoutePoint {
   isPlace: boolean
   leg_transport_mode?: string | null
   incoming_leg_transport_mode?: string | null
+  /** Only on an accommodation bookend: the stay the day starts from or ends at. */
+  hotel?: 'morning' | 'evening'
+  /** Only on a planned stop: its assignment, which the road trip's vias are filed against. */
+  assignmentId?: number
+}
+
+/**
+ * Which accommodation bookend the leg between two neighbouring run points is, if any.
+ * A day that is nothing but the drive from one stay to the next counts as its morning
+ * leg, so it shows once at the top rather than at both ends (#2476).
+ */
+export function hotelBookendOf(from: DayRoutePoint, to: DayRoutePoint): 'morning' | 'evening' | undefined {
+  if (from.hotel === 'morning') return 'morning'
+  if (to.hotel === 'evening') return 'evening'
+  return undefined
 }
 
 /** Everything the plan depends on, passed in rather than read from the store, so the
@@ -23,6 +39,10 @@ export interface DayRouteInputs {
   reservations: Reservation[]
   accommodations: Accommodation[]
   optimizeFromAccommodation: boolean | undefined
+  toursEnabled?: boolean
+  places?: Place[]
+  /** MDT-02: where the stages of the trip's multi-day tours run, so a day holding one routes to it. */
+  tourStageStops?: TourStageStops
 }
 
 /**
@@ -34,7 +54,18 @@ export interface DayRouteInputs {
  */
 export function buildDayRouteRuns(dayId: number, input: DayRouteInputs): DayRoutePoint[][] {
   const { days: allDays, assignments, reservations: allReservations, accommodations, optimizeFromAccommodation } = input
-  const da = (assignments[String(dayId)] || []).slice().sort((a, b) => a.order_index - b.order_index)
+  // Without the stop a booked night wrote. The day plan hides that stop (the list
+  // and `useTripPlanner` both filter it) and draws the hotel as the day's bookends
+  // instead, so the road has to be built from the same stops the list shows. Left
+  // in, the stop sat first on a day that opened with a flight, since it carries no
+  // time of its own and a timed booking is seated behind the last timed stop: the
+  // map then drove from the hotel to the airport the traveller had not landed at
+  // yet, and back after the flight (#2430). Road trip mode keeps the stop; it plans
+  // its own drive and never comes through here.
+  const da = (assignments[String(dayId)] || [])
+    .filter(a => a.accommodation_id == null)
+    .slice()
+    .sort((a, b) => a.order_index - b.order_index)
   const dayOrder = (id: number | null | undefined): number | null => {
     if (id == null) return null
     const d = allDays.find(x => x.id === id)
@@ -54,16 +85,25 @@ export function buildDayRouteRuns(dayId: number, input: DayRouteInputs): DayRout
     days: allDays,
   })
   const merged = getMergedItems({ dayAssignments: da, dayNotes: [], dayTransports, dayId })
+  const projected = projectedById(da, input.toursEnabled ?? false, input.places, input.tourStageStops)
 
   type Entry =
-    | { kind: 'place'; lat: number; lng: number; pos: number; time: string | null; mode: string | null; incoming: string | null }
+    | { kind: 'place'; id: number; lat: number; lng: number; pos: number; time: string | null; mode: string | null; incoming: string | null }
+    | { kind: 'tour'; start: { lat: number; lng: number } | null; end: { lat: number; lng: number } | null; pos: number; time: string | null; mode: string | null; incoming: string | null }
     | { kind: 'transport'; from: { lat: number; lng: number } | null; to: { lat: number; lng: number } | null; pos: number; carrier: boolean }
   const entries: Entry[] = merged.flatMap((item): Entry[] => {
     if (item.type === 'place') {
       const a = item.data
+      if (a.route_excluded) return []
+      const tour = projected.get(a.id)
+      if (tour?.kind === 'tour') return [{
+        kind: 'tour', start: tour.start, end: tour.end, pos: item.sortKey,
+        time: a.place?.place_time ?? null,
+        mode: a.leg_transport_mode ?? null, incoming: a.incoming_leg_transport_mode ?? null,
+      }]
       if (!a.place?.lat || !a.place?.lng) return []
       return [{
-        kind: 'place', lat: a.place.lat, lng: a.place.lng, pos: item.sortKey, time: a.place?.place_time ?? null,
+        kind: 'place', id: a.id, lat: a.place.lat, lng: a.place.lng, pos: item.sortKey, time: a.place?.place_time ?? null,
         // Per-segment travel mode (#1281): mode of the leg leaving this place.
         mode: (a as { leg_transport_mode?: string | null }).leg_transport_mode ?? null,
         // Boundary-leg mode (#1281 follow-up): mode of the leg arriving at this place.
@@ -91,12 +131,24 @@ export function buildDayRouteRuns(dayId: number, input: DayRouteInputs): DayRout
     runHasPlace = false
   }
   for (const entry of entries) {
-    if (entry.kind === 'place') {
+    if (entry.kind === 'tour') {
+      if (entry.start) {
+        const prev = currentRun[currentRun.length - 1]
+        if (prev && !prev.isPlace && !withinDriveRange(prev, entry.start)) closeRun()
+        currentRun.push({ ...entry.start, isPlace: true, incoming_leg_transport_mode: entry.incoming })
+        runHasPlace = true
+      }
+      closeRun()
+      if (entry.end) {
+        currentRun.push({ ...entry.end, isPlace: true, leg_transport_mode: entry.mode })
+        runHasPlace = true
+      }
+    } else if (entry.kind === 'place') {
       const prev = currentRun[currentRun.length - 1]
       // The open run may be nothing but a far-away arrival endpoint — break rather
       // than draw the ocean.
       if (prev && !prev.isPlace && !withinDriveRange(prev, entry)) closeRun()
-      currentRun.push({ lat: entry.lat, lng: entry.lng, isPlace: true, leg_transport_mode: entry.mode, incoming_leg_transport_mode: entry.incoming })
+      currentRun.push({ lat: entry.lat, lng: entry.lng, isPlace: true, leg_transport_mode: entry.mode, incoming_leg_transport_mode: entry.incoming, assignmentId: entry.id })
       runHasPlace = true
     } else if (entry.from || entry.to) {
       const prev = currentRun[currentRun.length - 1]
@@ -116,22 +168,31 @@ export function buildDayRouteRuns(dayId: number, input: DayRouteInputs): DayRout
   const flatPts: DayRoutePoint[] = []
   for (const e of entries) {
     if (e.kind === 'place') flatPts.push({ lat: e.lat, lng: e.lng, isPlace: true, leg_transport_mode: e.mode, incoming_leg_transport_mode: e.incoming })
+    else if (e.kind === 'tour') {
+      if (e.start) flatPts.push({ ...e.start, isPlace: true, incoming_leg_transport_mode: e.incoming })
+      if (e.end) flatPts.push({ ...e.end, isPlace: true, leg_transport_mode: e.mode })
+    }
     else { if (e.from) flatPts.push({ ...e.from, isPlace: false }); if (e.to) flatPts.push({ ...e.to, isPlace: false }) }
   }
   // A hotel bookend point is not a place-assignment, so isPlace: false — resolveLegMode
   // falls through to the day default for hotel-adjacent legs unless the place endpoint
-  // carries its own override.
-  const hotelPt = (a?: Accommodation): DayRoutePoint | null =>
-    a && a.place_lat != null && a.place_lng != null ? { lat: a.place_lat, lng: a.place_lng, isPlace: false } : null
+  // carries its own override. It says which end of the day it is, so the legs routed
+  // from it can be told apart from a stop planned on the hotel's own spot (#2501).
+  const hotelPt = (a: Accommodation | undefined, hotel: 'morning' | 'evening'): DayRoutePoint | null =>
+    a && a.place_lat != null && a.place_lng != null ? { lat: a.place_lat, lng: a.place_lng, isPlace: false, hotel } : null
   // Only draw a hotel bookend when the leg is a real drive: a place before check-in
   // (#1465), a later "home" stop on the checkout day (#1465), or a transport endpoint on
   // an arrival/departure day (#1321, #2133) all draw no bookend.
-  const contributes = (e: Entry) => e.kind === 'place' || !!e.from || !!e.to
+  const contributes = (e: Entry) => e.kind === 'place' || e.kind === 'tour' || !!e.from || !!e.to
   const firstStop = entries.find(contributes)
   const lastStop = [...entries].reverse().find(contributes)
   const edgeInfo = (e: Entry | undefined, side: 'first' | 'last') => {
     if (!e) return undefined
     if (e.kind === 'place') return { isPlace: true, time: e.time, lat: e.lat, lng: e.lng }
+    if (e.kind === 'tour') {
+      const point = side === 'first' ? e.start : e.end
+      return point ? { isPlace: true, time: e.time, ...point } : undefined
+    }
     const role: CarrierEdge = side === 'first'
       ? (e.from ? 'departure' : 'arrival')
       : (e.to ? 'arrival' : 'departure')
@@ -143,11 +204,11 @@ export function buildDayRouteRuns(dayId: number, input: DayRouteInputs): DayRout
   const dayHasCarrier = dayTransports.some(r => hasCarrierEndpointOnDay(r, dayId))
   const firstWay = flatPts[0]
   const lastWay = flatPts[flatPts.length - 1]
-  const morningHotel = hotelPt(bookends?.morning)
-  const eveningHotel = hotelPt(bookends?.evening)
-  const drawMorning = !!bookends && !!day && shouldDrawMorningLeg(bookends, day, edgeInfo(firstStop, 'first'), dayHasCarrier)
+  const morningHotel = hotelPt(bookends?.morning, 'morning')
+  const eveningHotel = hotelPt(bookends?.evening, 'evening')
+  const drawMorning = !!bookends && !!day && !(firstStop?.kind === 'tour' && !firstStop.start) && shouldDrawMorningLeg(bookends, day, edgeInfo(firstStop, 'first'), dayHasCarrier)
     && (!morningHotel || !firstWay || firstWay.isPlace || withinDriveRange(morningHotel, firstWay))
-  const drawEvening = !!bookends && !!day && shouldDrawEveningLeg(bookends, day, edgeInfo(lastStop, 'last'), dayHasCarrier)
+  const drawEvening = !!bookends && !!day && !(lastStop?.kind === 'tour' && !lastStop.end) && shouldDrawEveningLeg(bookends, day, edgeInfo(lastStop, 'last'), dayHasCarrier)
     && (!eveningHotel || !lastWay || lastWay.isPlace || withinDriveRange(eveningHotel, lastWay))
   const runsWithHotel: DayRoutePoint[][] = withHotelBookends(
     runs,
@@ -159,9 +220,14 @@ export function buildDayRouteRuns(dayId: number, input: DayRouteInputs): DayRout
 
   // Transfer day with no activities: you check out of one accommodation and into
   // another, so there are no waypoints for withHotelBookends to attach a leg to.
-  if (runsWithHotel.length === 0 && drawMorning && drawEvening) {
-    const m = hotelPt(bookends?.morning)
-    const e = hotelPt(bookends?.evening)
+  // Not when a flight, train, ferry or coach is booked on the day, located or not:
+  // that booking IS the move, and the road from one hotel to the other is exactly
+  // the stretch nobody drove (#2476). One saved without its stations leaves no
+  // waypoint behind, so the gates above never see it; no line beats a wrong one.
+  const dayHasCarrierBooking = dayTransports.some(r => isCarrierTransport(r))
+  if (runsWithHotel.length === 0 && drawMorning && drawEvening && !dayHasCarrierBooking) {
+    const m = hotelPt(bookends?.morning, 'morning')
+    const e = hotelPt(bookends?.evening, 'evening')
     if (m && e && (m.lat !== e.lat || m.lng !== e.lng)) runsWithHotel.push([m, e])
   }
 

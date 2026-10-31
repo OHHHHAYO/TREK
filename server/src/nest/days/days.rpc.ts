@@ -1,11 +1,13 @@
-import { dayCreateRequestSchema, dayUpdateRequestSchema } from '@trek/shared';
-import { PluginController, PluginMethod } from '../plugins/host/rpc-kit/decorators';
-import { PluginGuards } from '../plugins/host/plugin-guards.service';
-import { BadParams, ForbiddenResource } from '../plugins/host/rpc-errors';
-import { num, schemaMessage } from '../plugins/host/rpc-params';
-import type { PluginRpcContext } from '../plugins/host/rpc-kit/types';
+import { PluginGuards } from '../../nest-rpc/plugin-guards.service';
+import { BadParams, ForbiddenResource } from '../../nest-rpc/rpc-errors';
+import { PluginController, PluginMethod } from '../../nest-rpc/rpc-kit/decorators';
+import type { PluginRpcContext } from '../../nest-rpc/rpc-kit/types';
+import { num, schemaMessage } from '../../nest-rpc/rpc-params';
+import type { MirrorSender } from '../accommodations/accommodations.service';
 import { RealtimeService } from '../realtime/realtime.service';
-import { DaysService } from './days.service';
+import { DayRemovalService, DayDeleteError, type DayRemoval } from './day-removal.service';
+import { DaysService, DayAppendError, type DatedDayAppend, type DaySender } from './days.service';
+import { dayCreateRequestSchema, dayUpdateRequestSchema } from '@trek/shared';
 
 const DAY_EDIT_ACTION = 'day_edit';
 
@@ -21,46 +23,69 @@ export class DaysRpc {
     private readonly days: DaysService,
     private readonly realtime: RealtimeService,
     private readonly guards: PluginGuards,
+    private readonly removal: DayRemovalService,
   ) {}
 
   @PluginMethod('days.create', { permission: 'db:write:days' })
-  create(params: Record<string, unknown>, ctx: PluginRpcContext): unknown {
+  async create(params: Record<string, unknown>, ctx: PluginRpcContext): Promise<unknown> {
     const tripId = num(params.tripId, 'tripId');
     const actor = this.guards.requireActor(ctx, 'day');
     const parsed = dayCreateRequestSchema.safeParse(params.input);
     if (!parsed.success) throw new BadParams(`invalid day: ${schemaMessage(parsed.error)}`);
-    this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
-    const input = parsed.data as { date?: string; notes?: string };
-    const day = this.days.create(tripId, input.date, input.notes);
+    await this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
+    const input = parsed.data;
+    if (input.dated) return await this.appendDated(tripId, actor, input.notes);
+    const day = await this.days.create(tripId, input.date, input.notes);
     this.realtime.broadcast(tripId, 'day:created', { day });
     return day;
   }
 
+  /** days.create with `dated`: the calendar day after the trip's last date, as on REST and MCP. */
+  private async appendDated(tripId: number, actor: number, notes: string | undefined): Promise<unknown> {
+    let append: DatedDayAppend;
+    try {
+      append = await this.days.appendDated(tripId, actor, notes);
+    } catch (err) {
+      if (err instanceof DayAppendError) throw new BadParams(err.message);
+      throw err;
+    }
+    const send: DaySender = (event, payload) => this.realtime.broadcast(tripId, event, payload);
+    this.days.announceDatedAppend(append, { all: send, others: send });
+    return append.day;
+  }
+
   @PluginMethod('days.update', { permission: 'db:write:days' })
-  update(params: Record<string, unknown>, ctx: PluginRpcContext): unknown {
+  async update(params: Record<string, unknown>, ctx: PluginRpcContext): Promise<unknown> {
     const tripId = num(params.tripId, 'tripId');
     const dayId = num(params.dayId, 'dayId');
     const actor = this.guards.requireActor(ctx, 'day');
     const parsed = dayUpdateRequestSchema.safeParse(params.input);
     if (!parsed.success) throw new BadParams(`invalid day: ${schemaMessage(parsed.error)}`);
-    this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
+    await this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
     // getDay scopes the row to the trip before the write touches it.
-    const current = this.days.getDay(dayId, tripId);
+    const current = await this.days.getDay(dayId, tripId);
     if (!current) throw new ForbiddenResource(`no day ${dayId} on trip ${tripId}`);
-    const day = this.days.update(dayId, current, parsed.data as { notes?: string; title?: string | null });
+    const day = await this.days.update(dayId, current, parsed.data as { notes?: string; title?: string | null });
     this.realtime.broadcast(tripId, 'day:updated', { day });
     return day;
   }
 
   @PluginMethod('days.delete', { permission: 'db:write:days' })
-  delete(params: Record<string, unknown>, ctx: PluginRpcContext): unknown {
+  async delete(params: Record<string, unknown>, ctx: PluginRpcContext): Promise<unknown> {
     const tripId = num(params.tripId, 'tripId');
     const dayId = num(params.dayId, 'dayId');
     const actor = this.guards.requireActor(ctx, 'day');
-    this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
-    if (!this.days.getDay(dayId, tripId)) throw new ForbiddenResource(`no day ${dayId} on trip ${tripId}`);
-    this.days.remove(dayId);
-    this.realtime.broadcast(tripId, 'day:deleted', { dayId });
+    await this.guards.requireTripEdit(tripId, actor, DAY_EDIT_ACTION);
+    if (!(await this.days.getDay(dayId, tripId))) throw new ForbiddenResource(`no day ${dayId} on trip ${tripId}`);
+    let removal: DayRemoval;
+    try {
+      removal = await this.removal.remove(tripId, dayId, { userId: actor });
+    } catch (err) {
+      if (err instanceof DayDeleteError) throw new BadParams(err.message);
+      throw err;
+    }
+    const send: MirrorSender = (event, payload) => this.realtime.broadcast(tripId, event, payload);
+    await this.removal.announce(tripId, removal, { all: send, others: send });
     return { deleted: true };
   }
 }

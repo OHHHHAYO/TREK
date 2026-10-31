@@ -5,11 +5,12 @@ const undo: TranslationStrings = {
   'undo.tooltip': 'Annulla: {action}',
   'undo.assignPlace': 'Luogo assegnato al giorno',
   'undo.removeAssignment': 'Luogo rimosso dal giorno',
+  'undo.clearDay': 'Giorno svuotato',
   'undo.reorder': 'Luoghi riordinati',
   'undo.optimize': 'Percorso ottimizzato',
   'undo.deletePlace': 'Luogo eliminato',
   'undo.deletePlaces': 'Luoghi eliminati',
-  'undo.changeCategory': 'Category changed',
+  'undo.changeCategory': 'Categoria modificata',
   'undo.moveDay': 'Luogo spostato in altro giorno',
   'undo.lock': 'Blocco luogo modificato',
   'undo.importGpx': 'Importazione GPX',
@@ -19,6 +20,7 @@ const undo: TranslationStrings = {
   'undo.importNaverList': 'Importazione Naver Maps',
   'undo.addPlace': 'Luogo aggiunto',
   'undo.done': 'Annullato: {action}',
+  'undo.failed': 'Impossibile annullare: {action}',
   'undo.importBooking': 'Importazione conferma prenotazione',
 };
 export default undo;

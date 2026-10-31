@@ -9,15 +9,15 @@ const system_notice: TranslationStrings = {
   'system_notice.welcome_v1.highlight_plan': 'Itinerarios día a día para cualquier viaje',
   'system_notice.welcome_v1.highlight_share': 'Colabora con tus compañeros de viaje',
   'system_notice.welcome_v1.highlight_offline': 'Funciona sin conexión en móvil',
-  'system_notice.dev_test_modal.title': '[Dev] Test notice',
-  'system_notice.dev_test_modal.body': 'This is a dev-only test notice.',
+  'system_notice.dev_test_modal.title': '[Dev] Aviso de prueba',
+  'system_notice.dev_test_modal.body': 'Este es un aviso de prueba solo para desarrollo.',
   'system_notice.thank_you_support.title': 'Gracias por usar TREK',
   'system_notice.thank_you_support.body':
     'Un pequeño agradecimiento por instalar TREK — de verdad significa mucho para mí.\n\nSoy un desarrollador independiente y construyo TREK en mi tiempo libre. Empezó como una pequeña herramienta solo para mis propios viajes, y sinceramente me deja sin palabras todo el apoyo y el interés de la comunidad desde entonces. TREK está hecho con mucho cariño de mi parte — pero también gracias a los muchos colaboradores externos increíbles que han ayudado a darle forma.\n\n**TREK es open source y completamente gratuito — y seguirá siéndolo para siempre. Sin planes de pago, sin suscripciones, sin trampa. Te lo prometo.**\n\nSi TREK te resulta útil y quieres apoyar su desarrollo, un pequeño café me ayuda de verdad a seguir construyendo — sin ninguna presión, pero cada taza mantiene vivas las noches en vela.\n\nGracias por estar aquí.\n\n— Maurice',
   'system_notice.thank_you_support.highlight_opensource': '100% open source en GitHub',
   'system_notice.thank_you_support.highlight_free': 'Gratis para siempre — nunca habrá planes de pago',
   'system_notice.thank_you_support.highlight_community': 'Construido junto a la comunidad',
-  'system_notice.thank_you_support.cta_bmc': 'Buy Me a Coffee',
+  'system_notice.thank_you_support.cta_bmc': 'Invítame a un café',
   'system_notice.thank_you_support.cta_kofi': 'Apóyame en Ko-fi',
   'system_notice.pager.prev': 'Aviso anterior',
   'system_notice.pager.next': 'Siguiente aviso',
@@ -56,16 +56,23 @@ const system_notice: TranslationStrings = {
     'La actualización 3.0.14 detectó uno o más conflictos de nombre de usuario o correo electrónico causados por espacios en blanco al inicio o al final de los valores almacenados. Las cuentas afectadas se renombraron automáticamente. Revisa los registros del servidor en busca de líneas que empiecen por **[migration] WHITESPACE COLLISION** para identificar qué cuentas necesitan revisión.',
   // The release modal. One stable set of keys: each big release swaps the copy in place.
   'system_notice.release_notes.eyebrow': 'Actualización instalada',
-  'system_notice.release_notes.headline': 'Cuatro cosas que TREK ahora hace por sí mismo.',
-  'system_notice.release_notes.intro': 'Su propia API de lugares, viajes por carretera planificados de principio a fin, tu historial de ubicaciones en tus manos, y tus documentos sincronizados.',
+  'system_notice.release_notes.headline': 'El TREK más grande hasta ahora.',
+  'system_notice.release_notes.intro':
+    'Excursiones para cada día al aire libre, un estudio para tus fotolibros, un asistente que planifica contigo y ayuda en cada pantalla.',
   'system_notice.release_notes.features_label': 'Los protagonistas',
   'system_notice.release_notes.features_aside': 'Y eso no es todo',
-  'system_notice.release_notes.feature_places_title': 'TREK Places API',
-  'system_notice.release_notes.feature_places_body': 'El primer planificador de viajes de código abierto con su propia API de lugares. 73,6 millones de lugares, sin clave, sin cuota.',
-  'system_notice.release_notes.feature_roadtrip_title': 'Addon Roadtrip',
-  'system_notice.release_notes.feature_roadtrip_body': 'Planifica el trayecto por sí solo: ruta, distancia, horas y paradas. Apagado hasta que un admin lo active.',
-  'system_notice.release_notes.feature_dawarich_title': 'Integración con Dawarich',
-  'system_notice.release_notes.feature_dawarich_body': 'La alternativa autoalojada a Google Timeline, ahora legible desde TREK. TREK lee, y solo lee.',
+  'system_notice.release_notes.feature_tours_title': 'Excursiones',
+  'system_notice.release_notes.feature_tours_body':
+    'Senderismo, bici, carreras, rutas a caballo, piragüismo, paseos urbanos y días de esquí, con perfil de altitud, grados de dificultad y sobrevuelo en 3D.',
+  'system_notice.release_notes.feature_studio_title': 'TREK Studio', // same-as-en
+  'system_notice.release_notes.feature_studio_body':
+    'Convierte un viaje en un fotolibro diseñado: 17 temas, 34 tipografías, 160 pegatinas y maquetación automática con un clic.',
+  'system_notice.release_notes.feature_assistant_title': 'Asistente de IA',
+  'system_notice.release_notes.feature_assistant_body':
+    'Planifica contigo sobre tus viajes reales, con la cuenta de IA que ya tienes. Cada cambio se muestra primero y se puede deshacer.',
+  'system_notice.release_notes.feature_help_title': 'Ayuda en cada pantalla, en 27 idiomas',
+  'system_notice.release_notes.feature_help_body':
+    'Unas 370 guías paso a paso con 1600 imágenes, justo donde las necesitas. Novedad: azerí, estonio, eslovaco y tailandés.',
   'system_notice.release_notes.footnote': 'Y una larga lista de cambios más pequeños en el resto de TREK.',
   'system_notice.release_notes.notes_label': 'Notas de versión',
   'system_notice.release_notes.note_eyebrow': 'Una nota del desarrollador',
@@ -83,9 +90,7 @@ const system_notice: TranslationStrings = {
     'TREK es gratis y siempre lo será, pero los servidores, los dominios y tantas noches en vela no lo son.',
   'system_notice.release_notes.support_text':
     'Si se ha ganado un sitio en tus viajes, invítame a un café y ayuda a que llegue la próxima versión.',
-  'system_notice.release_notes.cta_bmc': 'Buy me a coffee',
+  'system_notice.release_notes.cta_bmc': 'Invítame a un café',
   'system_notice.release_notes.cta_kofi': 'Apóyame en Ko-fi',
-  'system_notice.release_notes.feature_docsync_title': 'Sincronización de documentos',
-  'system_notice.release_notes.feature_docsync_body': 'Paperless-ngx, Papra, Nextcloud, OpenCloud y Synology Drive. Los documentos de un viaje fluyen en ambos sentidos con el almacén que ya usas.',
 };
 export default system_notice;

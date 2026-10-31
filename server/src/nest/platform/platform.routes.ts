@@ -1,11 +1,20 @@
-import express, { Request, Response, NextFunction } from 'express';
-import path from 'node:path';
-
 import { readEnv } from '../../app-config';
-import { verifyJwtAndLoadUser } from '../auth/jwt-verify';
-import { db } from '../../db/database';
+import { Photos } from '../../db/entities/Photos.entity';
+import { ShareTokens } from '../../db/entities/ShareTokens.entity';
+import { UserSessions } from '../../db/entities/UserSessions.entity';
+import { Users } from '../../db/entities/Users.entity';
+import type { PhotosRepository } from '../../db/repositories/Photos.repository';
+import type { ShareTokensRepository } from '../../db/repositories/ShareTokens.repository';
+import type { UserSessionsRepository } from '../../db/repositories/UserSessions.repository';
+import type { UsersRepository } from '../../db/repositories/Users.repository';
+import { verifyJwtAndLoadUser } from '../auth-core/jwt-verify';
+import { withRequestContext } from '../database/request-context';
 import { StorageService } from '../storage/storage.service';
 import { StorageInvalidKeyError, StorageNotFoundError, type StorageCategory } from '../storage/storage.types';
+import type { EntityManager } from '@mikro-orm/core';
+
+import express, { Request, Response, NextFunction } from 'express';
+import path from 'node:path';
 
 // Platform / transport routes extracted verbatim from createApp() (app.ts) so they can be
 // mounted on either the legacy Express app or the NestJS Express instance (strangler A6/A8).
@@ -19,6 +28,43 @@ import { StorageInvalidKeyError, StorageNotFoundError, type StorageCategory } fr
 // here at all: they address files as (category, name) through StorageService (slice 3).
 
 export const PUBLIC_DIR = path.join(__dirname, '../../../public');
+
+// File types the client build emits. No page of the app ends in one of these.
+const BUILD_FILE_RE = /\.(?:m?js|css|map|wasm|webmanifest|json|png|jpe?g|gif|webp|avif|svg|ico|woff2?|ttf|otf)$/i;
+
+/**
+ * Whether a request asks for a file of the built client rather than a page of it.
+ *
+ * Such a request that the static handler could not answer is a file that does not
+ * exist, and it must end in a 404. It used to get index.html like a page (#2524).
+ * A tab still running the previous build asks for a chunk the update removed and
+ * gets HTML with a 200, which the module loader rejects. Worse, a 200 is a success
+ * to everything that caches: a service worker's precache stores the HTML under the
+ * chunk's name and keeps reusing it in every later version that keeps the name,
+ * and a reverse proxy that caches static files by extension hands it out as the
+ * chunk. A 404 is refused by the precache and never stands in for the file.
+ */
+export function isBuildFilePath(pathname: string): boolean {
+  return pathname.startsWith('/assets/') || BUILD_FILE_RE.test(pathname);
+}
+
+/**
+ * The production answer to a GET that nothing else matched: index.html for a page
+ * of the app, a plain 404 in the TREK envelope for a build file that is not there.
+ * Shared by both fallback forms (applyPlatformSpa and SpaFallbackFilter).
+ */
+export function answerUnmatchedGet(req: Request, res: Response, message = 'Not Found'): void {
+  if (isBuildFilePath(req.path)) {
+    res.setHeader('Cache-Control', 'no-store');
+    res.status(404).json({ error: message });
+    return;
+  }
+  res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+  // Relative to root, so that send() checks only 'index.html' for dot segments. Given
+  // the absolute path it refused an install living under a dot directory (a
+  // ~/.local checkout, say) and every deep link came back as a 404.
+  res.sendFile('index.html', { root: PUBLIC_DIR });
+}
 
 /**
  * express.static replacement for the four public /uploads mounts (storage
@@ -70,7 +116,15 @@ export function storageStaticHandler(storage: StorageService, category: StorageC
   };
 }
 
-async function servePhoto(storage: StorageService, req: Request, res: Response): Promise<void> {
+async function servePhoto(
+  storage: StorageService,
+  req: Request,
+  res: Response,
+  users: UsersRepository,
+  shareTokens: ShareTokensRepository,
+  photos: PhotosRepository,
+  sessions: UserSessionsRepository,
+): Promise<void> {
   const safeName = path.basename(req.params.filename);
   // Parity: after basename(), the old resolve()+startsWith guard could only
   // fire when the remaining segment was '..' — keep that exact 403.
@@ -102,19 +156,17 @@ async function servePhoto(storage: StorageService, req: Request, res: Response):
   }
 
   // JWT session path (with pv check).
-  const user = verifyJwtAndLoadUser(rawToken);
+  const user = await verifyJwtAndLoadUser(rawToken, users, sessions);
   if (user) return sendPhoto();
 
   // Share-token path: require the token to cover the exact trip the
   // photo belongs to. Expired tokens fall through to 401.
-  const photo = db.prepare('SELECT trip_id FROM photos WHERE filename = ?').get(safeName) as { trip_id: number } | undefined;
+  const photo = await photos.findTripIdByFilename(safeName);
   if (!photo) {
     res.status(401).send('Authentication required');
     return;
   }
-  const share = db
-    .prepare("SELECT trip_id FROM share_tokens WHERE token = ? AND (expires_at IS NULL OR expires_at > datetime('now'))")
-    .get(rawToken) as { trip_id: number } | undefined;
+  const share = await shareTokens.findTripIdByToken(rawToken);
   if (!share || share.trip_id !== photo.trip_id) {
     res.status(401).send('Authentication required');
     return;
@@ -125,8 +177,50 @@ async function servePhoto(storage: StorageService, req: Request, res: Response):
 /**
  * Static + guarded /uploads/* routes. Must be applied BEFORE the API route mounts
  * (identical to its original position near the top of createApp).
+ *
+ * `orm` (Plan 3b Task 0, D6/plan3b-sql-inventory.md §5/§6): `servePhoto` is
+ * mounted here, on the raw Express instance, BEFORE `app.init()` — every
+ * `/uploads/photos/*` request runs this handler entirely outside Nest's
+ * per-request EntityManager fork, forever, not just during a boot window.
+ * `verifyJwtAndLoadUser` (`jwt-verify.ts`, JV1) now reads `users` through
+ * `UsersRepository` (Plan 3b Task 1) rather than the legacy `db` proxy — the
+ * exact case Task 0's wrap was built for. The anonymous share-token fallback
+ * (used when no JWT is present) now reads `share_tokens` through
+ * `ShareTokensRepository.findTripIdByToken` the SAME way (Plan 3h Task 6, R1
+ * — the plan's single highest-severity finding: this branch ran unconverted,
+ * against the legacy `db` proxy, for three plans after the JWT half above
+ * was fixed). The sibling `photos` table read (Plan 4 Task 1) now goes
+ * through `PhotosRepository.findTripIdByFilename` the same way — its
+ * `trip_id` MATCH against the converted `share` read is the handler's whole
+ * authorization and is untouched, only the read itself moved off the legacy
+ * `db` proxy. `orm.em.getRepository(Users)`, `orm.em.getRepository
+ * (ShareTokens)` and `orm.em.getRepository(Photos)` are all resolved inside
+ * the arrow passed to `withRequestContext` below: `orm.em` is the global,
+ * context-resolving EntityManager, and MikroORM's repository object holds a
+ * reference to that same proxy rather than a snapshot, so a query issued
+ * through it later resolves whatever `AsyncLocalStorage` context is active
+ * AT QUERY TIME — not at the moment `getRepository()` was called. What
+ * actually gates this is `withRequestContext` wrapping the whole
+ * `servePhoto(...)` call (every repository read included): removing the
+ * wrapper entirely reproduces Task 0's `ValidationError: Using global
+ * EntityManager instance...` (verified directly — mutation-proof in
+ * `task-1-report.md`), exactly the failure `PHOTOCTX-002`/`SEAM-002` guard
+ * against.
+ *
+ * Optional at the type level only, the same shape `TrekWsAdapter` uses for
+ * its own D6 wrapper (`src/nest/realtime/trek-ws.adapter.ts`): `bootstrap.ts`
+ * always passes the real `MikroORM` it already resolved. Fail-closed shape
+ * per the Plan 3b Rulings — a request-time choke point THROWS when the ORM
+ * is absent rather than running `servePhoto` unwrapped: the photo route
+ * answers 500 through Express's error path (`next(err)`), the same shape the
+ * WS adapter's message dispatch already uses (throw before calling the
+ * handler at all, never a silent degrade).
  */
-export function applyPlatformUploads(app: express.Application, storage: StorageService): void {
+export function applyPlatformUploads(
+  app: express.Application,
+  storage: StorageService,
+  orm?: { em: EntityManager },
+): void {
   // Static: avatars, covers, and journey photos.
   //
   // Security model (audit SEC-M9): these paths are unauthenticated by
@@ -155,9 +249,23 @@ export function applyPlatformUploads(app: express.Application, storage: StorageS
   // photo's trip. Previously any share token for any trip could request
   // any photo filename by UUID — fine in practice because UUIDs are
   // unguessable, but the auth model was wrong.
-  app.get('/uploads/photos/:filename', (req: Request, res: Response, next: NextFunction) =>
-    servePhoto(storage, req, res).catch(next),
-  );
+  app.get('/uploads/photos/:filename', (req: Request, res: Response, next: NextFunction) => {
+    if (!orm) {
+      next(new Error('applyPlatformUploads: no MikroORM available to build a request context for /uploads/photos/*'));
+      return;
+    }
+    return withRequestContext(orm, () =>
+      servePhoto(
+        storage,
+        req,
+        res,
+        orm.em.getRepository(Users),
+        orm.em.getRepository(ShareTokens),
+        orm.em.getRepository(Photos),
+        orm.em.getRepository(UserSessions),
+      ),
+    ).catch(next);
+  });
 
   // Block direct access to /uploads/files
   app.use('/uploads/files', (_req: Request, res: Response) => {
@@ -172,17 +280,14 @@ export function applyPlatformUploads(app: express.Application, storage: StorageS
  * NOT use this (its router terminates unmatched requests with a 404 before any
  * post-init route runs, and Express 5's path-to-regexp rejects a bare '*'); it serves
  * the SPA via the SpaFallbackFilter instead. Both produce the identical result:
- * unmatched GET → index.html in production.
+ * unmatched GET → index.html in production, or a 404 for a missing build file.
  */
 export function applyPlatformSpa(app: express.Application): void {
   applyPlatformStatic(app);
   // Case-sensitive on purpose (legacy parity).
   if (readEnv().app.nodeEnv !== 'production') return;
   // /.*/ rather than '*' so the helper is Express-4 and Express-5 safe.
-  app.get(/.*/, (_req: Request, res: Response) => {
-    res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
-    res.sendFile(path.join(PUBLIC_DIR, 'index.html'));
-  });
+  app.get(/.*/, (req: Request, res: Response) => answerUnmatchedGet(req, res));
 }
 
 /**

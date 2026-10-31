@@ -50,6 +50,7 @@
 .rn-close { box-sizing: content-box; }
 
 .rn-panel {
+  position: relative;
   width: min(1420px, calc(100% - 2px));
   max-height: 100%;
   display: grid;
@@ -67,9 +68,68 @@
   line-height: normal;
 }
 
-/* Below the two-column breakpoint the halves stack and the panel scrolls. */
+/* The panel's, not the note's: in the stacked layout below it has to outlast the
+   release half, which scrolls by first. */
+.rn-close {
+  position: absolute;
+  top: 22px;
+  /* Logical, so the X sits at the reading end in Arabic too. With the physical
+     right it stayed over the release half there, which the note's palette below
+     is not made for, and the stacked layout put it at the other end anyway. */
+  inset-inline-end: 22px;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--bg-hover);
+  border: 1px solid var(--border-faint);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-secondary);
+  z-index: 2;
+  cursor: pointer;
+  transition: background-color 0.15s ease, color 0.15s ease;
+}
+
+.rn-close:hover { background: var(--bg-selected); color: var(--text-primary); }
+
+/* Below the two-column breakpoint the halves stack and the panel scrolls. The
+   rows must go back to auto: with the single minmax row from above, the note took
+   the whole panel and the release half was left with nothing but its padding. */
 @media (max-width: 1080px) {
-  .rn-panel { grid-template-columns: 1fr; overflow-y: auto; }
+  .rn-panel { grid-template-columns: 1fr; grid-template-rows: auto auto; overflow-y: auto; }
+  .rn-release { grid-area: 1 / 1; }
+  .rn-note { grid-area: 2 / 1; }
+  .rn-release, .rn-release-inner, .rn-note-body { overflow: visible; }
+  /* The X used to sit in the note, a whole release half below the top edge, and
+     at a tablet's width the backdrop is gone too. As a grid item over both rows
+     it sticks 22px under the top edge for the entire scroll, over either half. */
+  .rn-close {
+    position: sticky;
+    grid-row: 1 / -1;
+    grid-column: 1;
+    justify-self: end;
+    align-self: start;
+    margin: 22px;
+    /* At the top of the scroll it hangs over the release half, which is dark in
+       both themes. The note's palette is a near-transparent fill and secondary
+       ink: in the light theme that is a slate glyph on near black, roughly 1.8:1,
+       so the only way to dismiss the notice on a tablet was invisible. An opaque
+       chip with primary ink carries over either half, the way .rn-support below
+       gets a solid band once it sticks. */
+    background: color-mix(in srgb, var(--bg-card) 92%, var(--text-primary));
+    border-color: var(--border-primary);
+    color: var(--text-primary);
+    box-shadow: 0 2px 8px oklch(0 0 0 / 0.25);
+  }
+  /* Once the note has scrolled into view, the ask stays at the bottom edge. The
+     band's usual tint is translucent, so it gets a solid one here. */
+  .rn-support {
+    position: sticky;
+    bottom: 0;
+    z-index: 1;
+    background: color-mix(in srgb, var(--bg-card) 95%, var(--text-primary));
+  }
 }
 
 [data-reduce-motion='true'] .rn-overlay,
@@ -239,8 +299,7 @@
 .rn-feature-shine {
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 1px;
   background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.4), transparent);
 }
@@ -321,223 +380,6 @@
   flex: none;
 }
 
-/* ── The card pictures ─────────────────────────────────────────────────── */
-
-.rn-vis {
-  position: absolute;
-  inset: 0;
-  color: #f5f5f7;
-  font-family: var(--font-system);
-}
-
-.rn-vis-road > svg,
-.rn-vis-trail > svg { position: absolute; inset: 0; width: 100%; height: 100%; }
-
-.rn-vis-icon {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: oklch(1 0 0 / 0.55);
-}
-
-/* Places API: the index answering a search while it is typed. */
-.rn-vis-places {
-  padding: 9px 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-/* The same wordmark the API keys card leads with, centred; its pill text inverts against the tile. */
-.rn-vis-trekbadge { align-self: center; display: flex; align-items: center; height: 24px; }
-
-.rn-vis-trekmark { display: block; height: 20px; width: auto; color: #f5f5f7; }
-
-.rn-vis-places .trek-mark .pill-fg { fill: #101013; }
-
-.rn-vis-search {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  height: 22px;
-  padding: 0 9px;
-  border-radius: 8px;
-  background: oklch(1 0 0 / 0.08);
-  border: 1px solid oklch(1 0 0 / 0.16);
-  font-size: 10px;
-  font-weight: 500;
-  white-space: nowrap;
-}
-
-.rn-vis-search svg { width: 11px; height: 11px; flex: none; color: oklch(1 0 0 / 0.55); }
-
-/* The query types itself out once, then the answer arrives under it. */
-.rn-vis-typed {
-  display: inline-block;
-  max-width: 90px;
-  overflow: hidden;
-  white-space: nowrap;
-  animation: rn-type 1.3s steps(13, end) 0.7s both;
-}
-
-@keyframes rn-type { from { max-width: 0; } to { max-width: 90px; } }
-
-.rn-vis-caret {
-  width: 1px;
-  height: 12px;
-  margin-left: -4px;
-  background: #f5f5f7;
-  animation: rn-caret 1s steps(1) infinite;
-}
-
-@keyframes rn-caret { 50% { opacity: 0; } }
-
-.rn-vis-result {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 5px 8px;
-  border-radius: 8px;
-  background: oklch(1 0 0 / 0.07);
-  animation: rn-answer 0.3s ease 2.1s both;
-}
-
-@keyframes rn-answer { from { opacity: 0; transform: translateY(-3px); } to { opacity: 1; transform: none; } }
-
-.rn-vis-cat {
-  width: 18px;
-  height: 18px;
-  border-radius: 50%;
-  border: 1.5px solid #ffffff;
-  color: #ffffff;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  flex: none;
-  box-sizing: border-box;
-}
-
-.rn-vis-place { display: flex; flex-direction: column; min-width: 0; line-height: 1.2; }
-
-.rn-vis-place span {
-  font-size: 10px;
-  font-weight: 600;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-
-.rn-vis-place small { font-size: 8.5px; color: oklch(1 0 0 / 0.5); }
-
-@media (prefers-reduced-motion: reduce) {
-  .rn-vis-typed, .rn-vis-caret, .rn-vis-result { animation: none; }
-}
-
-[data-reduce-motion='true'] .rn-vis-typed,
-[data-reduce-motion='true'] .rn-vis-caret,
-[data-reduce-motion='true'] .rn-vis-result { animation: none; }
-
-/* Road trip: the drive on the map, in the planner's route blue and marker style. */
-.rn-vis-road-casing { fill: none; stroke: #0a5cc2; stroke-width: 5; stroke-linecap: round; stroke-linejoin: round; }
-
-.rn-vis-road-line { fill: none; stroke: #0a84ff; stroke-width: 3; stroke-linecap: round; stroke-linejoin: round; }
-
-.rn-vis-marker {
-  position: absolute;
-  width: 18px;
-  height: 18px;
-  margin: -9px 0 0 -9px;
-  border-radius: 50%;
-  border: 2px solid #ffffff;
-  box-sizing: border-box;
-  box-shadow: 0 1px 4px oklch(0 0 0 / 0.35);
-  color: #ffffff;
-  font-size: 8.5px;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-variant-numeric: tabular-nums;
-}
-
-.rn-vis-distance {
-  position: absolute;
-  right: 9px;
-  bottom: 8px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 7px;
-  border-radius: 99px;
-  background: #f5f5f7;
-  color: #101013;
-  font-size: 9px;
-  font-weight: 600;
-  white-space: nowrap;
-  font-variant-numeric: tabular-nums;
-}
-
-/* Dawarich: a recorded day, in the trail colour the map draws it with. */
-.rn-vis-trail-line { fill: none; stroke: #2563eb; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-
-.rn-vis-trail-stay { fill: #ffffff; stroke: #2563eb; stroke-width: 2; }
-
-/* Document sync: the wordmark, the two-way arrow under it, and the five stores in a row. */
-.rn-vis-docs {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 4px;
-  padding: 8px 12px;
-}
-
-.rn-vis-docs .rn-vis-trekbadge { height: 22px; }
-.rn-vis-docs .rn-vis-trekmark { height: 19px; }
-
-.rn-vis-docs-flow { display: flex; color: oklch(1 0 0 / 0.55); transform: rotate(90deg); }
-
-.rn-vis-docs-stores {
-  display: flex;
-  gap: 8px;
-}
-
-.rn-vis-docs-store {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
-  background: oklch(1 0 0 / 0.1);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.18), inset 0 0 0 1px oklch(1 0 0 / 0.1);
-}
-
-/* The mark itself, unframed, with its corners rounded like an app icon. */
-.rn-vis-brand {
-  position: absolute;
-  top: 12px;
-  left: 12px;
-  width: 58px;
-  height: 58px;
-  border-radius: 15px;
-  overflow: hidden;
-  box-shadow: 0 4px 14px oklch(0 0 0 / 0.45), 0 0 0 1px oklch(1 0 0 / 0.14);
-}
-
-/* A glass sheen over the mark: a soft light from the top and a bright inner edge. */
-.rn-vis-brand::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  border-radius: inherit;
-  background: linear-gradient(160deg, oklch(1 0 0 / 0.42) 0%, oklch(1 0 0 / 0.08) 38%, transparent 55%, oklch(0 0 0 / 0.12) 100%);
-  box-shadow: inset 0 1px 0 oklch(1 0 0 / 0.55), inset 0 0 0 1px oklch(1 0 0 / 0.22);
-  pointer-events: none;
-}
-
-.rn-vis-brand img { display: block; width: 100%; height: 100%; }
-
 /* ── Right: the note ───────────────────────────────────────────────────── */
 
 .rn-note {
@@ -548,26 +390,6 @@
   flex-direction: column;
   min-height: 0;
 }
-
-.rn-close {
-  position: absolute;
-  top: 22px;
-  right: 22px;
-  width: 36px;
-  height: 36px;
-  border-radius: 50%;
-  background: var(--bg-hover);
-  border: 1px solid var(--border-faint);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  z-index: 2;
-  cursor: pointer;
-  transition: background-color 0.15s ease, color 0.15s ease;
-}
-
-.rn-close:hover { background: var(--bg-selected); color: var(--text-primary); }
 
 .rn-note-body {
   flex: 1;
@@ -580,6 +402,15 @@
 }
 
 .rn-note-body::-webkit-scrollbar { display: none; }
+
+/*
+ * The two columns scroll; what is inside them must not give way instead. A flex
+ * item may shrink below its content, and one with overflow hidden may shrink to
+ * nothing, so on a 1080p screen at 100% the promise box was pressed down to its
+ * label while the paragraphs around it kept their height and the column scrolled.
+ */
+.rn-release-inner > *,
+.rn-note-body > * { flex-shrink: 0; }
 
 .rn-note-eyebrow {
   font-family: var(--font-subtext);
@@ -640,8 +471,7 @@
   content: '';
   position: absolute;
   top: 0;
-  left: 0;
-  right: 0;
+  inset-inline: 0;
   height: 1px;
   background: linear-gradient(90deg, transparent, oklch(1 0 0 / 0.5), transparent);
   z-index: 1;

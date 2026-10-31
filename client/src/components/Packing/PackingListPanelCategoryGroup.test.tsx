@@ -48,7 +48,7 @@ function setup(overrides: Partial<Props> = {}) {
 
 /** The category header owns the first MoreHorizontal; item rows render their own. */
 function openCategoryMenu(container: HTMLElement) {
-  const btn = container.querySelectorAll('svg.lucide-more-horizontal')[0].closest('button')!
+  const btn = container.querySelectorAll('svg.lucide-ellipsis')[0].closest('button')!
   fireEvent.click(btn)
   return btn
 }
@@ -303,7 +303,7 @@ describe('KategorieGruppe — bulk actions', () => {
 
   it('FE-W5CAT-015a: the menu trigger highlights on hover', () => {
     const { container } = setup()
-    const trigger = container.querySelectorAll('svg.lucide-more-horizontal')[0].closest('button')!
+    const trigger = container.querySelectorAll('svg.lucide-ellipsis')[0].closest('button')!
 
     fireEvent.mouseEnter(trigger)
     expect(trigger.style.color).toBe('var(--text-secondary)')
@@ -323,7 +323,7 @@ describe('KategorieGruppe — bulk actions', () => {
     expect(checkAll.style.background).toBe('none')
 
     fireEvent.mouseEnter(deleteAll)
-    expect(deleteAll.style.background).toBe('rgb(254, 242, 242)')
+    expect(deleteAll.style.background).toBe('rgba(239, 68, 68, 0.1)')
   })
 })
 
@@ -483,6 +483,17 @@ describe('KategorieGruppe — inline add item', () => {
     fireEvent.keyDown(screen.getByPlaceholderText('Item name...'), { key: 'Enter' })
 
     expect(onAddItem).not.toHaveBeenCalled()
+  })
+
+  it('FE-W5CAT-028a: Enter on the first item typed into the placeholder row opens the add field (#2825)', async () => {
+    server.use(http.put('/api/trips/1/packing/1', () => HttpResponse.json({ item: buildPackingItem({ id: 1, name: 'Tent', category: 'Gear' }) })))
+    setup({ items: [buildPackingItem({ id: 1, name: '...', category: 'Gear' })] })
+
+    fireEvent.click(screen.getByText('...'))
+    fireEvent.change(screen.getByPlaceholderText('...'), { target: { value: 'Tent' } })
+    fireEvent.keyDown(screen.getByPlaceholderText('...'), { key: 'Enter' })
+
+    await waitFor(() => expect(screen.getByPlaceholderText('Item name...')).toHaveFocus())
   })
 
   it('FE-W5CAT-028: the confirm button adds the item, and stays inert while empty', () => {

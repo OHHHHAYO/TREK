@@ -1,9 +1,9 @@
-import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 import { AddonsModule } from '../addons/addons.module';
-import { DiscoveryController } from './discovery.controller';
-import { DiscoveryMetadataService } from './discovery-metadata.service';
-import { mcpMetadataMiddlewareProvider } from './mcp-metadata.middleware';
 import { ConsentCoopMiddleware } from './consent-coop.middleware';
+import { DiscoveryMetadataService } from './discovery-metadata.service';
+import { DiscoveryController, McpResourceDiscoveryController } from './discovery.controller';
+import { mcpMetadataMiddlewareProvider } from './mcp-metadata.middleware';
+import { Module, type MiddlewareConsumer, type NestModule } from '@nestjs/common';
 
 /**
  * The platform surface that lives behind the container: OAuth/OIDC discovery
@@ -23,8 +23,8 @@ import { ConsentCoopMiddleware } from './consent-coop.middleware';
  */
 @Module({
   imports: [AddonsModule],
-  controllers: [DiscoveryController],
-  providers: [DiscoveryMetadataService, mcpMetadataMiddlewareProvider, ConsentCoopMiddleware],
+  controllers: [DiscoveryController, McpResourceDiscoveryController],
+  providers: [DiscoveryMetadataService, DiscoveryController, mcpMetadataMiddlewareProvider, ConsentCoopMiddleware],
 })
 export class PlatformModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

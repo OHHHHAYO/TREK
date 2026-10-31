@@ -1,10 +1,12 @@
 import React from 'react'
-import { CheckCheck, Trash2 } from 'lucide-react'
+import { Bell, CheckCheck, Trash2 } from 'lucide-react'
 import { useTranslation } from '../i18n'
 import PageShell from '../components/Layout/PageShell'
+import HelpAnchor from '../components/Help/HelpAnchor'
 import EmptyState from '../components/shared/EmptyState'
+import ConfirmDialog from '../components/shared/ConfirmDialog'
 import { Spinner } from '../components/shared/Spinner'
-import InAppNotificationItem from '../components/Notifications/InAppNotificationItem.tsx'
+import NotificationDayList from '../components/Notifications/NotificationDayList'
 import { useInAppNotifications } from './inAppNotifications/useInAppNotifications'
 
 export default function InAppNotificationsPage(): React.ReactElement {
@@ -19,25 +21,29 @@ function InAppNotificationsPageDesktop(): React.ReactElement {
   const {
     notifications, unreadCount, total, isLoading, hasMore,
     unreadOnly, setUnreadOnly, loaderRef, displayed,
-    markAllRead, deleteAll,
+    markAllRead, confirmingDeleteAll, requestDeleteAll, cancelDeleteAll, confirmDeleteAll,
   } = useInAppNotifications()
 
   return (
     <PageShell background="var(--bg-primary)">
+      <HelpAnchor id="notifications" />
       <div className="max-w-2xl mx-auto px-4 py-8">
-          {/* Header */}
-          <div className="flex items-center justify-between mb-6">
-            <div>
-              <h1 className="text-xl font-semibold text-content">
+          {/* Header: a tile, the name with how many are unread, the count under it, the bulk tools at the end. */}
+          <div className="flex items-center gap-4 mb-6">
+            <span className="grid place-items-center w-12 h-12 rounded-2xl bg-accent-subtle text-accent flex-shrink-0">
+              <Bell className="w-5 h-5" />
+            </span>
+            <div className="flex-1 min-w-0">
+              <h1 className="flex items-center gap-2 text-title font-semibold text-content">
                 {t('notifications.title')}
                 {unreadCount > 0 && (
-                  <span className="ml-2 px-2 py-0.5 rounded-full text-xs font-medium align-middle inline-flex items-center justify-center bg-content text-surface">
+                  <span className="px-2 h-6 inline-flex items-center rounded-full text-caption font-semibold tabular-nums bg-accent text-accent-text">
                     {unreadCount}
                   </span>
                 )}
               </h1>
-              <p className="text-sm mt-0.5 text-content-muted">
-                {total} {total === 1 ? 'notification' : 'notifications'}
+              <p className="text-body mt-0.5 text-content-muted">
+                {total} {t('notifications.countLabel', { count: total })}
               </p>
             </div>
 
@@ -46,9 +52,7 @@ function InAppNotificationsPageDesktop(): React.ReactElement {
               {unreadCount > 0 && (
                 <button type="button"
                   onClick={markAllRead}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-content-secondary bg-surface-hover"
-                  onMouseEnter={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseLeave={e => e.currentTarget.style.background = 'var(--bg-hover)'}
+                  className="flex items-center gap-1.5 h-9 px-3 rounded-xl text-body font-medium transition-colors text-content bg-surface-card border border-edge hover:bg-surface-hover focus-visible:bg-surface-hover"
                 >
                   <CheckCheck className="w-4 h-4" />
                   <span className="hidden sm:inline">{t('notifications.markAllRead')}</span>
@@ -56,8 +60,8 @@ function InAppNotificationsPageDesktop(): React.ReactElement {
               )}
               {notifications.length > 0 && (
                 <button type="button"
-                  onClick={deleteAll}
-                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm transition-colors text-red-500 hover:bg-red-500/10"
+                  onClick={requestDeleteAll}
+                  className="flex items-center gap-1.5 h-9 px-3 rounded-xl text-body font-medium transition-colors text-danger bg-surface-card border border-edge hover:bg-danger-soft focus-visible:bg-danger-soft"
                 >
                   <Trash2 className="w-4 h-4" />
                   <span className="hidden sm:inline">{t('notifications.deleteAll')}</span>
@@ -66,44 +70,52 @@ function InAppNotificationsPageDesktop(): React.ReactElement {
             </div>
           </div>
 
-          {/* Filter toggle */}
-          <div className="flex gap-2 mb-4">
+          {/* Filter: one segmented control rather than two loose buttons. */}
+          <div className="inline-flex gap-1 p-1 mb-4 rounded-xl bg-surface-secondary" role="group" aria-label={t('notifications.title')}>
             <button type="button"
               onClick={() => setUnreadOnly(false)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${!unreadOnly ? 'bg-content text-surface' : 'bg-surface-hover text-content-secondary'}`}
+              aria-pressed={!unreadOnly}
+              className={`h-8 px-3.5 rounded-lg text-body font-medium transition-colors ${!unreadOnly ? 'bg-surface-card text-content shadow-sm' : 'text-content-muted hover:text-content'}`}
             >
               {t('notifications.all')}
             </button>
             <button type="button"
               onClick={() => setUnreadOnly(true)}
-              className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${unreadOnly ? 'bg-content text-surface' : 'bg-surface-hover text-content-secondary'}`}
+              aria-pressed={unreadOnly}
+              className={`h-8 px-3.5 rounded-lg text-body font-medium transition-colors ${unreadOnly ? 'bg-surface-card text-content shadow-sm' : 'text-content-muted hover:text-content'}`}
             >
               {t('notifications.unreadOnly')}
             </button>
           </div>
 
-          {/* Notification list */}
-          <div className="rounded-xl border overflow-hidden border-edge bg-surface-card">
-            {isLoading && displayed.length === 0 ? (
-              <div className="flex items-center justify-center py-16">
-                <Spinner className="w-6 h-6 border-2 border-slate-200 border-t-current" />
-              </div>
-            ) : displayed.length === 0 ? (
+          {/* The list, one card per day. */}
+          {isLoading && displayed.length === 0 ? (
+            <div className="flex items-center justify-center py-16">
+              <Spinner className="w-6 h-6 border-2 border-edge border-t-current" />
+            </div>
+          ) : displayed.length === 0 ? (
+            <div className="rounded-2xl border border-edge bg-surface-card">
               <EmptyState scene="notifications" title={t('notifications.empty')} />
-            ) : (
-              displayed.map(n => (
-                <InAppNotificationItem key={n.id} notification={n} />
-              ))
-            )}
+            </div>
+          ) : (
+            <NotificationDayList notifications={displayed} />
+          )}
 
-            {/* Infinite scroll trigger */}
-            {hasMore && (
-              <div ref={loaderRef} className="flex items-center justify-center py-4">
-                {isLoading && <Spinner className="w-5 h-5 border-2 border-slate-200 border-t-current" />}
-              </div>
-            )}
-          </div>
+          {/* Infinite scroll trigger */}
+          {hasMore && (
+            <div ref={loaderRef} className="flex items-center justify-center py-4">
+              {isLoading && <Spinner className="w-5 h-5 border-2 border-edge border-t-current" />}
+            </div>
+          )}
         </div>
+      <ConfirmDialog
+        isOpen={confirmingDeleteAll}
+        onClose={cancelDeleteAll}
+        onConfirm={confirmDeleteAll}
+        title={t('notifications.deleteAllConfirmTitle')}
+        message={t('notifications.deleteAllConfirmText')}
+        confirmLabel={t('notifications.deleteAll')}
+      />
     </PageShell>
   )
 }

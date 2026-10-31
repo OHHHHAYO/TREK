@@ -1,14 +1,25 @@
+import { noAccess, permissionDenied } from '../../mcp/tools/_shared';
 import {
-  McpController, Tool, ResourceTemplate, type McpContext,
-  TOOL_ANNOTATIONS_WRITE, TOOL_ANNOTATIONS_DELETE, TOOL_ANNOTATIONS_NON_IDEMPOTENT,
-  demoDenied, ok,
+  McpController,
+  Tool,
+  ResourceTemplate,
+  type McpContext,
+  TOOL_ANNOTATIONS_WRITE,
+  TOOL_ANNOTATIONS_DELETE,
+  TOOL_ANNOTATIONS_NON_IDEMPOTENT,
+  ok,
 } from '../../nest-mcp';
 import { McpToolGuardsService } from '../mcp-shared/mcp-tool-guards.service';
-import { z } from 'zod';
-import { NOTE_COLORS, type NoteColor } from '@trek/shared';
-import { AuthService } from '../auth/auth.service';
-import { noAccess, permissionDenied } from '../../mcp/tools/_shared';
 import { DayNotesService } from './day-notes.service';
+import {
+  dayNoteCreateRequestSchema,
+  dayNoteUpdateRequestSchema,
+  idSchema,
+  NOTE_COLORS,
+  type NoteColor,
+} from '@trek/shared';
+
+import { z } from 'zod';
 
 /**
  * The palette itself rather than the REST contract's `z.string().max(9)`.
@@ -17,6 +28,18 @@ import { DayNotesService } from './day-notes.service';
  * colour was dropped. An enum is also how the tool tells a model what it may pick.
  */
 const noteColorSchema = z.enum(NOTE_COLORS);
+
+/**
+ * The note's two text fields carry their names from the time a note was a line
+ * with a clock time: `text` is the heading and `time` the Markdown body under it.
+ * The REST contract holds the bounds, so a note written in the planner can always
+ * be edited here; the descriptions are what tells a model which field is which.
+ */
+const NOTE_TITLE = 'The note title, shown as its heading in the day plan. Keep it short';
+const NOTE_BODY =
+  'The note body shown under the title: details, links, reminders, Markdown allowed. ' +
+  'Despite the field name this is the content, not a clock time';
+const noteTitleSchema = dayNoteCreateRequestSchema.shape.text.describe(NOTE_TITLE);
 
 function parseId(value: string | string[]): number | null {
   const n = Number(Array.isArray(value) ? value[0] : value);
@@ -42,68 +65,117 @@ function parseId(value: string | string[]): number | null {
 export class DayNotesMcp {
   constructor(
     private readonly notes: DayNotesService,
-    private readonly auth: AuthService,
     private readonly guards: McpToolGuardsService,
   ) {}
 
   @Tool({
     name: 'create_day_note',
-    description: 'Add a note to a specific day in a trip.',
+    description: 'Add a note to a specific day in a trip: a title in `text` and its body in `time`.',
     inputSchema: {
-      tripId: z.number().int().positive(),
-      dayId: z.number().int().positive(),
-      text: z.string().min(1).max(500),
-      time: z.string().max(250).optional().describe('Time label (e.g. "09:00" or "Morning")'),
+      tripId: idSchema,
+      dayId: idSchema,
+      text: noteTitleSchema,
+      time: dayNoteCreateRequestSchema.shape.time.describe(NOTE_BODY),
       icon: z.string().max(64).optional().describe('Emoji icon for the note'),
-      color: noteColorSchema.nullable().optional().describe('Card colour from the note palette; null or omitted leaves the neutral card'),
-      sort_order: z.number().optional().describe('Position in the day, lowest first, interleaved with the places of that day. Omit to append at the bottom'),
+      color: noteColorSchema
+        .nullable()
+        .optional()
+        .describe('Card colour from the note palette; null or omitted leaves the neutral card'),
+      sort_order: z
+        .number()
+        .optional()
+        .describe(
+          'Position in the day, lowest first, interleaved with the places of that day. Omit to append at the bottom',
+        ),
     },
     annotations: TOOL_ANNOTATIONS_NON_IDEMPOTENT,
     access: { group: 'trips', mode: 'write' },
   })
   async createDayNote(
-    { tripId, dayId, text, time, icon, color, sort_order }: {
-      tripId: number; dayId: number; text: string; time?: string; icon?: string; color?: NoteColor | null; sort_order?: number;
+    {
+      tripId,
+      dayId,
+      text,
+      time,
+      icon,
+      color,
+      sort_order,
+    }: {
+      tripId: number;
+      dayId: number;
+      text: string;
+      time?: string | null;
+      icon?: string;
+      color?: NoteColor | null;
+      sort_order?: number;
     },
     ctx: McpContext,
   ) {
-    if (this.auth.isDemoUser(ctx.userId)) return demoDenied();
-    if (!this.notes.verifyTripAccess(tripId, ctx.userId)) return noAccess();
-    if (!this.guards.hasTripPermission('day_edit', tripId, ctx.userId)) return permissionDenied();
-    if (!this.notes.dayExists(dayId, tripId)) return { content: [{ type: 'text' as const, text: 'Day not found.' }], isError: true };
-    const note = this.notes.create(dayId, tripId, text, time, icon, sort_order, color);
+    if (!(await this.notes.verifyTripAccess(tripId, ctx.userId))) return noAccess();
+    if (!(await this.guards.hasTripPermission('day_edit', tripId, ctx.userId))) return permissionDenied();
+    if (!(await this.notes.dayExists(dayId, tripId)))
+      return { content: [{ type: 'text' as const, text: 'Day not found.' }], isError: true };
+    const note = await this.notes.create(dayId, tripId, text, time, icon, sort_order, color);
     this.guards.safeBroadcast(tripId, 'dayNote:created', { dayId, note });
     return ok({ note });
   }
 
   @Tool({
     name: 'update_day_note',
-    description: 'Edit an existing note on a specific day.',
+    description: 'Edit an existing note on a specific day: its title is `text`, its body `time`.',
     inputSchema: {
-      tripId: z.number().int().positive(),
-      dayId: z.number().int().positive(),
-      noteId: z.number().int().positive(),
-      text: z.string().min(1).max(500).optional(),
-      time: z.string().max(250).nullable().optional().describe('Time label (e.g. "09:00" or "Morning"), or null to clear'),
+      tripId: idSchema,
+      dayId: idSchema,
+      noteId: idSchema,
+      // The create bound, so an update cannot blank the title the planner requires.
+      text: noteTitleSchema.optional(),
+      time: dayNoteUpdateRequestSchema.shape.time.describe(`${NOTE_BODY}, or null to clear it`),
       icon: z.string().max(64).optional().describe('Emoji icon for the note'),
-      color: noteColorSchema.nullable().optional().describe('Card colour from the note palette, or null to go back to the neutral card'),
-      sort_order: z.number().optional().describe('New position in the day, lowest first, interleaved with the places of that day'),
+      color: noteColorSchema
+        .nullable()
+        .optional()
+        .describe('Card colour from the note palette, or null to go back to the neutral card'),
+      sort_order: z
+        .number()
+        .optional()
+        .describe('New position in the day, lowest first, interleaved with the places of that day'),
     },
     annotations: TOOL_ANNOTATIONS_WRITE,
     access: { group: 'trips', mode: 'write' },
   })
   async updateDayNote(
-    { tripId, dayId, noteId, text, time, icon, color, sort_order }: {
-      tripId: number; dayId: number; noteId: number; text?: string; time?: string | null; icon?: string; color?: NoteColor | null; sort_order?: number;
+    {
+      tripId,
+      dayId,
+      noteId,
+      text,
+      time,
+      icon,
+      color,
+      sort_order,
+    }: {
+      tripId: number;
+      dayId: number;
+      noteId: number;
+      text?: string;
+      time?: string | null;
+      icon?: string;
+      color?: NoteColor | null;
+      sort_order?: number;
     },
     ctx: McpContext,
   ) {
-    if (this.auth.isDemoUser(ctx.userId)) return demoDenied();
-    if (!this.notes.verifyTripAccess(tripId, ctx.userId)) return noAccess();
-    if (!this.guards.hasTripPermission('day_edit', tripId, ctx.userId)) return permissionDenied();
-    const existing = this.notes.getNote(noteId, dayId, tripId);
+    if (!(await this.notes.verifyTripAccess(tripId, ctx.userId))) return noAccess();
+    if (!(await this.guards.hasTripPermission('day_edit', tripId, ctx.userId))) return permissionDenied();
+    const existing = await this.notes.getNote(noteId, dayId, tripId);
     if (!existing) return { content: [{ type: 'text' as const, text: 'Note not found.' }], isError: true };
-    const note = this.notes.update(noteId, existing, { text, time: time !== undefined ? time : undefined, icon, color, sort_order });
+    const note = await this.notes.update(noteId, existing, {
+      text,
+      time: time !== undefined ? time : undefined,
+      icon,
+      color,
+      sort_order,
+    });
     this.guards.safeBroadcast(tripId, 'dayNote:updated', { dayId, note });
     return ok({ note });
   }
@@ -112,20 +184,19 @@ export class DayNotesMcp {
     name: 'delete_day_note',
     description: 'Delete a note from a specific day.',
     inputSchema: {
-      tripId: z.number().int().positive(),
-      dayId: z.number().int().positive(),
-      noteId: z.number().int().positive(),
+      tripId: idSchema,
+      dayId: idSchema,
+      noteId: idSchema,
     },
     annotations: TOOL_ANNOTATIONS_DELETE,
     access: { group: 'trips', mode: 'write' },
   })
   async deleteDayNote({ tripId, dayId, noteId }: { tripId: number; dayId: number; noteId: number }, ctx: McpContext) {
-    if (this.auth.isDemoUser(ctx.userId)) return demoDenied();
-    if (!this.notes.verifyTripAccess(tripId, ctx.userId)) return noAccess();
-    if (!this.guards.hasTripPermission('day_edit', tripId, ctx.userId)) return permissionDenied();
-    const note = this.notes.getNote(noteId, dayId, tripId);
+    if (!(await this.notes.verifyTripAccess(tripId, ctx.userId))) return noAccess();
+    if (!(await this.guards.hasTripPermission('day_edit', tripId, ctx.userId))) return permissionDenied();
+    const note = await this.notes.getNote(noteId, dayId, tripId);
     if (!note) return { content: [{ type: 'text' as const, text: 'Note not found.' }], isError: true };
-    this.notes.remove(noteId);
+    await this.notes.remove(noteId);
     this.guards.safeBroadcast(tripId, 'dayNote:deleted', { noteId, dayId });
     return ok({ success: true });
   }
@@ -137,25 +208,33 @@ export class DayNotesMcp {
     mimeType: 'application/json',
     access: { group: 'trips', mode: 'read' },
   })
-  async dayNotesResource(uri: URL, { tripId, dayId }: { tripId: string | string[]; dayId: string | string[] }, ctx: McpContext) {
+  async dayNotesResource(
+    uri: URL,
+    { tripId, dayId }: { tripId: string | string[]; dayId: string | string[] },
+    ctx: McpContext,
+  ) {
     const tId = parseId(tripId);
     const dId = parseId(dayId);
-    if (tId === null || dId === null || !this.notes.verifyTripAccess(tId, ctx.userId)) {
+    if (tId === null || dId === null || !(await this.notes.verifyTripAccess(tId, ctx.userId))) {
       return {
-        contents: [{
-          uri: uri.href,
-          mimeType: 'application/json',
-          text: JSON.stringify({ error: 'Trip not found or access denied' }),
-        }],
+        contents: [
+          {
+            uri: uri.href,
+            mimeType: 'application/json',
+            text: JSON.stringify({ error: 'Trip not found or access denied' }),
+          },
+        ],
       };
     }
-    const notes = this.notes.list(dId, tId);
+    const notes = await this.notes.list(dId, tId);
     return {
-      contents: [{
-        uri: uri.href,
-        mimeType: 'application/json',
-        text: JSON.stringify(notes, null, 2),
-      }],
+      contents: [
+        {
+          uri: uri.href,
+          mimeType: 'application/json',
+          text: JSON.stringify(notes, null, 2),
+        },
+      ],
     };
   }
 }

@@ -2,8 +2,10 @@
 # Rebuild gosu with a current Go toolchain so the runtime image ships no stale
 # Go stdlib (Debian's apt gosu is built with an old Go that trips CVE scanners).
 # The binary and its runtime behaviour are identical to the apt package.
-FROM golang:1.25-alpine AS gosu-build
-RUN CGO_ENABLED=0 GOBIN=/out go install github.com/tianon/gosu@latest
+FROM golang:1.26-alpine AS gosu-build
+# Pinned to the commit of gosu's 1.19 tag: @latest made every build pick up whatever
+# was pushed last, and the tag itself is not a semver version go install accepts.
+RUN CGO_ENABLED=0 GOBIN=/out go install github.com/tianon/gosu@6456aaa0f3c854d199d0f037f068eb97515b7513
 
 # ── Stage 1: shared ──────────────────────────────────────────────────────────
 FROM node:24-alpine AS shared-builder
@@ -20,14 +22,17 @@ WORKDIR /app
 COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
 COPY client/package.json ./client/
-COPY client/scripts/patch-maplibre.mjs ./client/scripts/
 RUN npm ci --workspace=client
 COPY --from=shared-builder /app/shared/dist ./shared/dist
 COPY client/ ./client/
+# A prerelease build does not bump client/package.json, so the bundle takes its
+# version from the same build argument the server's VERSION file comes from.
+ARG APP_VERSION=dev
 RUN npm run build --workspace=client
 
 # ── Stage 3: server ──────────────────────────────────────────────────────────
-# --ignore-scripts skips native builds (better-sqlite3); they happen in the production stage.
+# --ignore-scripts: nothing here needs a postinstall, tsc only reads types. The one
+# native module, better-sqlite3, ships its binaries inside the npm tarball since 13.x.
 FROM node:24-alpine AS server-builder
 WORKDIR /app
 COPY package.json package-lock.json ./
@@ -36,7 +41,9 @@ COPY server/package.json ./server/
 RUN npm ci --workspace=server --ignore-scripts
 COPY --from=shared-builder /app/shared/dist ./shared/dist
 COPY server/ ./server/
-RUN npm run build --workspace=server
+# tsc needs more than the 2 GB heap Node picks on a host with about 12 GB of RAM;
+# on a bigger build machine the default is larger, so only small hosts failed.
+RUN NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=server
 
 # ── Stage 4: production runtime ──────────────────────────────────────────────
 FROM node:24-trixie-slim
@@ -52,13 +59,22 @@ COPY server/package.json ./server/
 # changeset, so it costs nothing. Everything copied after this point carries
 # --chown=node:node for the same reason — a recursive chown in a later layer
 # would copy up every inode it touches and duplicate the whole tree in the image.
+#
+# No compiler in this stage. better-sqlite3 13.x carries prebuilt binaries for
+# amd64 and arm64 inside its tarball, so there is nothing left to build: the old
+# python3 + build-essential fallback compiled it against whatever Node headers
+# the base image had that day, and 24.19+ headers give an addon that aborts with
+# "Assertion failed: (env) != nullptr" the first time a statement is collected
+# (#2421). --ignore-scripts because a lockfile-driven npm ci still synthesises
+# `node-gyp rebuild` for the binding.gyp it finds, blind to the package's
+# gypfile:false (npm/cli#9837). The only other install scripts among the runtime
+# deps are esbuild's binary check, redundant next to its optional platform
+# package, and a telemetry ping.
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends tzdata dumb-init wget ca-certificates python3 build-essential \
+    apt-get install -y --no-install-recommends tzdata dumb-init wget ca-certificates \
     libkitinerary-bin libsqlite3-0 && \
-    npm ci --workspace=server --omit=dev && \
-    ln -sf "$(find /usr/lib -name kitinerary-extractor -type f | head -1)" /usr/local/bin/kitinerary-extractor; \
-    apt-get purge -y python3 build-essential && \
-    apt-get autoremove -y && \
+    npm ci --workspace=server --omit=dev --ignore-scripts && \
+    { ln -sf "$(find /usr/lib -name kitinerary-extractor -type f | head -1)" /usr/local/bin/kitinerary-extractor || true; } && \
     rm -rf /var/lib/apt/lists/* /usr/local/lib/node_modules/npm /usr/local/bin/npm /usr/local/bin/npx && \
     chown -R node:node /app
 
@@ -110,13 +126,29 @@ RUN mkdir -p /app/data/logs /app/uploads/files /app/uploads/covers /app/uploads/
 ENV NODE_ENV=production
 ENV NODE_USE_ENV_PROXY=1
 ENV PORT=3000
+# The version goes into a file, not into ENV. A container keeps its environment
+# when it is recreated on a newer image (Portainer's recreate, a copied run
+# config), so an APP_VERSION env var would keep announcing the old release and
+# the clients would never pick up the new bundle. The server reads this file
+# first (server/src/app-config/image-version.ts).
 ARG APP_VERSION=dev
-ENV APP_VERSION=${APP_VERSION}
+RUN if [ "$APP_VERSION" != "dev" ]; then printf '%s\n' "$APP_VERSION" > /app/server/VERSION; fi
+
+# OCI metadata: Renovate, Watchtower and the registries read the source label to
+# link an image update to its release notes (#1498). The release workflows add
+# the commit and the build time; a local build carries everything else.
+LABEL org.opencontainers.image.title="TREK" \
+      org.opencontainers.image.description="Self-hosted collaborative travel planner" \
+      org.opencontainers.image.url="https://github.com/liketrek/TREK" \
+      org.opencontainers.image.source="https://github.com/liketrek/TREK" \
+      org.opencontainers.image.documentation="https://github.com/liketrek/TREK/wiki" \
+      org.opencontainers.image.licenses="AGPL-3.0-only" \
+      org.opencontainers.image.version="${APP_VERSION}"
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget -qO- http://localhost:3000/api/health || exit 1
+  CMD wget -qO- "http://localhost:${PORT:-3000}/api/health" || exit 1
 
 # Start-up lives in a script, not an inline `sh -c` string: container management
 # UIs re-tokenise Config.Cmd when you edit a container in place, and a command

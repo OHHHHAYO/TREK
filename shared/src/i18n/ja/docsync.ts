@@ -69,7 +69,7 @@ const docsync: TranslationStrings = {
   'docsync.state.local_deleted': 'TREK で削除済み',
   'docsync.state.scope_drift': 'フォルダー外へ移動',
 
-  'docsync.conflict.resolve': "{count} 件を解決",
+  'docsync.conflict.resolve': '{count} 件を解決',
 
   'docsync.conflict.title': '両方のコピーが変更されました',
   'docsync.conflict.keepTrek': 'TREK のバージョンを残す',
@@ -172,8 +172,15 @@ const docsync: TranslationStrings = {
   'docsync.issues.error': '転送できませんでした。',
 
   'docsync.error.unknown_provider': 'この連携先はこのインスタンスでは利用できません。',
-  'docsync.error.provider_disabled': '一時停止中：管理者がこの連携先を無効にしました。再び有効になると同期が再開されます。',
+  'docsync.error.provider_disabled':
+    '一時停止中：管理者がこの連携先を無効にしました。再び有効になると同期が再開されます。',
   'docsync.binding.reconnect': '再接続',
+  'docsync.connection.title': '接続',
+  'docsync.connection.hint': 'TREK がこのストレージに使うアドレスとログイン情報です。',
+  'docsync.connection.edit': '接続を編集',
+  'docsync.connection.remove': '接続を削除',
+  'docsync.connection.confirmRemove':
+    'TREK はこのストレージのアドレスとログイン情報を削除し、この旅行のこのストレージ経由の同期はすべて止まります。ドキュメントは TREK とストレージの両方に残ります。',
 };
 
 export default docsync;

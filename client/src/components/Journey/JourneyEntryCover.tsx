@@ -1,6 +1,7 @@
-import { MapPin, Plus } from 'lucide-react'
+import { MapPin, Play, Plus } from 'lucide-react'
 import { useTranslation } from '../../i18n'
 import { moodMeta, weatherMeta } from '../../mobile/screens/journey/mobileJourneyMeta'
+import { posterlessVideo } from '../../pages/journeyDetail/JourneyDetailPage.helpers'
 import CountryFlag from '../shared/CountryFlag'
 import { cardDateLabel, cardPhotoId, cardPlace, cardTitle, type CardPhoto } from './journeyCard'
 import type { JourneyEntry } from '../../store/journeyStore'
@@ -25,6 +26,13 @@ import type { JourneyEntry } from '../../store/journeyStore'
  * which needs no tokens at all.
  */
 
+/** A card's photo, plus what says whether a clip has a poster to draw (#2341). */
+export interface CoverPhoto extends CardPhoto {
+  media_type?: string | null
+  provider?: string | null
+  thumbnail_path?: string | null
+}
+
 /** The subset of an entry a card reads. Shared journeys hand over less than the journey's own. */
 export interface CoverEntry {
   id: number
@@ -39,7 +47,7 @@ export interface CoverEntry {
   entry_time?: string | null
   mood?: string | null
   weather?: string | null
-  photos?: CardPhoto[]
+  photos?: CoverPhoto[]
 }
 
 interface Props {
@@ -69,8 +77,12 @@ export default function JourneyEntryCover({
   const { t, locale } = useTranslation()
   const isSuggestion = entry.type === 'skeleton'
 
-  const photoId = cardPhotoId(entry.photos?.[0])
-  const src = photoId == null ? null : photoUrlFor ? photoUrlFor(photoId) : `/api/photos/${photoId}/thumbnail`
+  const first = entry.photos?.[0]
+  const photoId = cardPhotoId(first)
+  // A clip without a poster has no picture to fill the card with; its thumbnail
+  // route 404s and an <img> pointed at it would draw the broken glyph (#2341).
+  const posterless = first != null && posterlessVideo(first)
+  const src = photoId == null || posterless ? null : photoUrlFor ? photoUrlFor(photoId) : `/api/photos/${photoId}/thumbnail`
 
   const title = cardTitle(entry, t)
   const place = cardPlace(entry)
@@ -91,7 +103,7 @@ export default function JourneyEntryCover({
       // The whole card is the photo, so its own ring is what separates it from the
       // map behind. A suggestion is drawn as an outline rather than a solid thing:
       // it is somewhere you planned to be, not somewhere you have written about.
-      className={`relative flex-none overflow-hidden rounded-[18px] text-left transition-[width,height] duration-150 ${
+      className={`relative flex-none overflow-hidden rounded-[18px] text-start transition-[width,height] duration-150 ${
         isActive ? 'h-[180px] w-[164px] shadow-[0_18px_40px_-16px_rgba(0,0,0,.55)]' : 'h-[152px] w-[136px] shadow-[0_10px_24px_-14px_rgba(0,0,0,.5)]'
       } ${src ? '' : emptyGround} ${isSuggestion ? 'opacity-90' : ''}`}
       // backgroundImage, not background: the shorthand would drop the opaque colour
@@ -112,7 +124,9 @@ export default function JourneyEntryCover({
         <img src={src} alt="" loading="lazy" className="absolute inset-0 h-full w-full rounded-[18px] object-cover" />
       ) : (
         <span className="absolute inset-0 flex items-center justify-center">
-          <MapPin size={24} strokeWidth={1.8} style={{ color: dayColor }} className="opacity-60" />
+          {posterless
+            ? <Play size={24} strokeWidth={1.8} fill="currentColor" style={{ color: dayColor }} className="ml-0.5 opacity-60" />
+            : <MapPin size={24} strokeWidth={1.8} style={{ color: dayColor }} className="opacity-60" />}
         </span>
       )}
 
@@ -126,7 +140,7 @@ export default function JourneyEntryCover({
           was doing, against a bright sky. Sized and placed to sit on the same line
           as the date opposite it. */}
       {entry.country_code && (
-        <span className="absolute left-2 top-2 flex h-[18px] items-center drop-shadow-[0_1px_3px_rgba(0,0,0,.6)]">
+        <span className="absolute start-2 top-2 flex h-[18px] items-center drop-shadow-[0_1px_3px_rgba(0,0,0,.6)]">
           <CountryFlag code={entry.country_code} size={14} />
         </span>
       )}
@@ -136,7 +150,7 @@ export default function JourneyEntryCover({
           italic, dimmed title carries the rest. */}
       {isSuggestion && (
         <span
-          className={`absolute top-2 ${entry.country_code ? 'left-[30px]' : 'left-2'} ${badgeDot} text-white`}
+          className={`absolute top-2 ${entry.country_code ? 'start-[30px]' : 'start-2'} ${badgeDot} text-white`}
           title={t('journey.entry.suggestion')}
           aria-label={t('journey.entry.suggestion')}
         >
@@ -146,7 +160,7 @@ export default function JourneyEntryCover({
 
       {/* Top right: when, and how it was. They fit beside each other now that the
           flag on the left is a bare mark rather than a chip of its own. */}
-      <span className="absolute right-2 top-2 flex items-center gap-1">
+      <span className="absolute end-2 top-2 flex items-center gap-1">
         {mood && (
           <span className={badgeDot} style={{ color: mood.color }}>
             <mood.icon size={11} strokeWidth={2.4} />

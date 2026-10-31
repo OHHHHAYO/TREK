@@ -1,15 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import type { ExpensePrefill } from '../../../../src/components/Budget/CostsPanel'
 import MCostSheet from '../../../../src/mobile/screens/trip/sheets/MCostSheet'
 import type { TripMember } from '../../../../src/components/Budget/BudgetPanelMemberChips'
 import { clearExchangeRateCache } from '../../../../src/hooks/useExchangeRates'
 import { useTripStore, type TripStoreState } from '../../../../src/store/tripStore'
 import type { BudgetItem, BudgetItemMember } from '../../../../src/types'
-import { buildBudgetItem } from '../../../helpers/factories'
+import { buildBudgetItem, buildTrip } from '../../../helpers/factories'
 import { localToday } from '../../../../src/components/Planner/today'
 import { resetAllStores } from '../../../helpers/store'
-import { act, fireEvent, render, screen, waitFor } from '../../../helpers/render'
+import { act, fireEvent, render, screen, waitFor, within } from '../../../helpers/render'
 
-// FE-MOB-COSTSH-001 to FE-MOB-COSTSH-030
+// FE-MOB-COSTSH-001 to FE-MOB-COSTSH-038
 // The sheet reads its copy from useTranslation(), so assertions are English.
 // EUR formats de-DE style: displayed amounts and inputs use a comma.
 
@@ -35,7 +36,7 @@ interface SheetOverrides {
   me?: number
   base?: string
   editing?: BudgetItem | null
-  prefill?: { name?: string; category?: string; amount?: number; reservationId?: number; placeId?: number }
+  prefill?: ExpensePrefill
 }
 
 function renderSheet(overrides: SheetOverrides = {}) {
@@ -112,8 +113,9 @@ describe('MCostSheet', () => {
     // A comma is normalised to a dot before it reaches the state.
     fillBasics('Dinner', '85,50')
 
-    expect(screen.getAllByText('€42.75')).toHaveLength(2)
-    expect(screen.getByText('Split 2 ways · €42.75 each')).toBeInTheDocument()
+    // Shares read the way the list prints euros (#2604).
+    expect(screen.getAllByText('42,75 €')).toHaveLength(2)
+    expect(screen.getByText('Split 2 ways · 42,75 € each')).toBeInTheDocument()
 
     fireEvent.click(submit())
     await waitFor(() => expect(addBudgetItem).toHaveBeenCalledTimes(1))
@@ -181,6 +183,14 @@ describe('MCostSheet', () => {
     }))
   })
 
+  it('FE-MOB-COSTSH-003c: a scanned receipt opens with its currency and its photo waiting to be attached', () => {
+    const photo = new File(['x'], 'bill.jpg', { type: 'image/jpeg' })
+    renderSheet({ prefill: { name: 'Sushi Dai', amount: 4200, currency: 'JPY', date: '2026-09-20', receiptFiles: [photo] } })
+    expect(nameField()).toHaveValue('Sushi Dai')
+    expect(screen.getByDisplayValue('4200')).toBeInTheDocument()
+    expect(screen.getByText('bill.jpg')).toBeInTheDocument()
+  })
+
   it('FE-MOB-COSTSH-003b: a place prefill carries the place link into the payload (#1298)', async () => {
     renderSheet({ prefill: { name: 'Louvre', category: 'activities', placeId: 12 } })
     expect(nameField()).toHaveValue('Louvre')
@@ -199,7 +209,7 @@ describe('MCostSheet', () => {
     fillBasics('Taxi', '30')
     fireEvent.click(screen.getByRole('button', { name: 'B bob' }))
 
-    expect(screen.getByText('Split 1 ways · €30.00 each')).toBeInTheDocument()
+    expect(screen.getByText('1 person · 30,00 €')).toBeInTheDocument()
     expect(screen.getAllByText('Tap to include')).toHaveLength(1)
 
     fireEvent.click(submit())
@@ -242,7 +252,7 @@ describe('MCostSheet', () => {
     expect(screen.queryByText(/live rate/)).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: 'EUR €' }))
-    fireEvent.change(screen.getByPlaceholderText('...'), { target: { value: 'USD' } })
+    fireEvent.change(screen.getByPlaceholderText('Search'), { target: { value: 'USD' } })
     fireEvent.click(screen.getByRole('button', { name: 'USD $' }))
 
     expect(screen.getByText('$100.00')).toBeInTheDocument()
@@ -337,12 +347,12 @@ describe('MCostSheet', () => {
     const shares = screen.getAllByPlaceholderText('50,00')
     expect(shares).toHaveLength(2)
     fireEvent.change(shares[0], { target: { value: '30' } })
-    expect(screen.getByText('€30.00 / €100.00')).toBeInTheDocument()
+    expect(screen.getByText('30,00 € / 100,00 €')).toBeInTheDocument()
     expect(submit()).toBeDisabled()
 
     // The remaining share now suggests what is left of the total.
     fireEvent.change(screen.getByPlaceholderText('70,00'), { target: { value: '70' } })
-    expect(screen.getByText('Split 2 ways · €50.00 each')).toBeInTheDocument()
+    expect(screen.getByText('Split 2 ways · 50,00 € each')).toBeInTheDocument()
 
     fireEvent.click(submit())
     await waitFor(() => expect(addBudgetItem).toHaveBeenCalledWith(1, expect.objectContaining({
@@ -350,14 +360,14 @@ describe('MCostSheet', () => {
     })))
   })
 
-  it('FE-MOB-COSTSH-015: a custom share rejects a third decimal and is cleared when the member drops out', () => {
+  it('FE-MOB-COSTSH-015: a custom share drops a third decimal and is cleared when the member drops out', () => {
     renderSheet()
     fillBasics('Dinner', '100')
     fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
 
     const share = screen.getAllByPlaceholderText('50,00')[0]
     fireEvent.change(share, { target: { value: '30.123' } })
-    expect(share).toHaveValue('')
+    expect(share).toHaveValue('30,12')
     fireEvent.change(share, { target: { value: '30,5' } })
     expect(screen.getByDisplayValue('30,5')).toBe(share)
 
@@ -377,7 +387,7 @@ describe('MCostSheet', () => {
     fireEvent.change(screen.getAllByPlaceholderText('0,00')[1], { target: { value: '20' } })
 
     expect(totalField()).toHaveValue('20,00')
-    expect(screen.getAllByText('€10.00')).toHaveLength(2)
+    expect(screen.getAllByText('10,00 €')).toHaveLength(2)
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Add' })[1])
     await waitFor(() => expect(addBudgetItem).toHaveBeenCalledTimes(1))
@@ -648,6 +658,66 @@ describe('MCostSheet', () => {
     })))
   })
 
+  it('FE-MOB-COSTSH-035: an expense saved without a currency reopens in the trip currency (#2525)', async () => {
+    // No currency on the row means the trip's own. Seeding the display currency
+    // instead labelled 100 euro as 100 dollars, and a plain save stored it so.
+    localStorage.setItem('trek_fx_USD', JSON.stringify({ rates: { USD: 1, EUR: 0.8 }, ts: Date.now() }))
+    useTripStore.setState({ trip: buildTrip({ id: 1, currency: 'EUR' }) } as unknown as Partial<TripStoreState>)
+    const editing = buildBudgetItem({
+      id: 12, name: 'Tram pass', category: 'transport', currency: null, total_price: 100,
+      members: [member(1, null)],
+      payers: [{ user_id: 1, amount: 100 }],
+    })
+    renderSheet({ base: 'USD', editing })
+
+    expect(totalField()).toHaveValue('100,00')
+    expect(screen.getByRole('button', { name: 'EUR €' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'USD $' })).toBeNull()
+
+    fireEvent.click(saveBtn())
+    await waitFor(() => expect(updateBudgetItem).toHaveBeenCalledWith(1, 12, expect.objectContaining({
+      total_price: 100,
+      currency: 'EUR',
+    })))
+  })
+
+  it('FE-MOB-COSTSH-036: editing a booked bill previews the rate the save keeps (#2525)', () => {
+    // A euro trip read in dollars, the bill entered in dollars at 1.17 to the euro.
+    // Same currency as the list, so the sheet said nothing, while the list showed the
+    // booked euros at today's rate beside the 801.76 typed here.
+    localStorage.setItem('trek_fx_USD', JSON.stringify({ rates: { USD: 1, EUR: 0.865706 }, ts: Date.now() }))
+    localStorage.setItem('trek_fx_EUR', JSON.stringify({ rates: { EUR: 1, USD: 1.1551 }, ts: Date.now() }))
+    useTripStore.setState({ trip: buildTrip({ id: 1, currency: 'EUR' }) } as unknown as Partial<TripStoreState>)
+    const editing = buildBudgetItem({
+      id: 13, name: 'Aparthotel Silver', category: 'accommodation', currency: 'USD', exchange_rate: 1.17, total_price: 801.76,
+      members: [member(1, null), member(2, null)],
+      payers: [{ user_id: 1, amount: 801.76 }],
+    })
+    renderSheet({ base: 'USD', editing })
+
+    const hint = screen.getByText(/live rate/).parentElement as HTMLElement
+    expect(within(hint).getByText('$801.76')).toBeInTheDocument()
+    expect(within(hint).getByText(/^685,26\s€$/)).toBeInTheDocument()
+    expect(within(hint).getByText('$791.55')).toBeInTheDocument()
+    // Each share next to what it counts as, the figure the row's "you lent" is made of.
+    expect(screen.getByText(/Split 2 ways · \$400\.88 → \$395\.77 each/)).toBeInTheDocument()
+  })
+
+  it('FE-MOB-COSTSH-037: a bill booked at today\'s rate has nothing to preview (#2525)', () => {
+    localStorage.setItem('trek_fx_USD', JSON.stringify({ rates: { USD: 1, EUR: 0.87732 }, ts: Date.now() }))
+    localStorage.setItem('trek_fx_EUR', JSON.stringify({ rates: { EUR: 1, USD: 1.1398 }, ts: Date.now() }))
+    useTripStore.setState({ trip: buildTrip({ id: 1, currency: 'EUR' }) } as unknown as Partial<TripStoreState>)
+    const editing = buildBudgetItem({
+      id: 14, name: 'Villa', category: 'accommodation', currency: 'USD', exchange_rate: 1.1398, total_price: 12345.67,
+      members: [member(1, null), member(2, null)],
+      payers: [{ user_id: 1, amount: 12345.67 }],
+    })
+    renderSheet({ base: 'USD', editing })
+
+    expect(screen.queryByText(/live rate/)).toBeNull()
+    expect(screen.queryByText(/→/)).toBeNull()
+  })
+
   it('FE-MOB-COSTSH-030: a currency without a known symbol falls back to its code', () => {
     localStorage.setItem('trek_fx_XTS', JSON.stringify({ rates: { XTS: 1 }, ts: Date.now() }))
     renderSheet({ base: 'XTS' })
@@ -656,5 +726,24 @@ describe('MCostSheet', () => {
 
     expect(screen.getAllByText('XTS 5.00')).toHaveLength(2)
     expect(screen.getByText('Split 2 ways · XTS 5.00 each')).toBeInTheDocument()
+  })
+
+  it('FE-MOB-COSTSH-038: a won expense reads whole won with grouping and suggests its custom shares faintly (#2604)', () => {
+    localStorage.setItem('trek_fx_KRW', JSON.stringify({ rates: { KRW: 1 }, ts: Date.now() }))
+    renderSheet({ base: 'KRW' })
+    fireEvent.change(nameField(), { target: { value: 'BBQ' } })
+    const total = screen.getByPlaceholderText('0')
+    fireEvent.change(total, { target: { value: '60000.55' } })
+    expect(total).toHaveValue('60000.')
+
+    expect(screen.getAllByText('₩30,000')).toHaveLength(2)
+    expect(screen.getByText('Split 2 ways · ₩30,000 each')).toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: 'Custom' }))
+    const shares = screen.getAllByPlaceholderText('30000')
+    expect(shares[0]).toHaveValue('')
+    expect(shares[0].className).toContain('placeholder:text-m-faint')
+    fireEvent.change(shares[0], { target: { value: '10000' } })
+    expect(screen.getByText('₩10,000 / ₩60,000')).toBeInTheDocument()
   })
 })

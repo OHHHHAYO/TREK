@@ -5,11 +5,12 @@ const undo: TranslationStrings = {
   'undo.tooltip': 'Ångra: {action}',
   'undo.assignPlace': 'Plats tilldelad dagen',
   'undo.removeAssignment': 'Plats har tagits bort från dagen',
+  'undo.clearDay': 'Dagen tömd',
   'undo.reorder': 'Platserna har ordnats om',
   'undo.optimize': 'Rutt optimerad',
   'undo.deletePlace': 'Plats borttagen',
   'undo.deletePlaces': 'Platser borttagna',
-  'undo.changeCategory': 'Category changed',
+  'undo.changeCategory': 'Kategori ändrad',
   'undo.moveDay': 'Plats har flyttats till en annan dag',
   'undo.lock': 'Plats lås växlad',
   'undo.importGpx': 'GPX importering',
@@ -20,5 +21,6 @@ const undo: TranslationStrings = {
   'undo.importBooking': 'Boknings godkännande importering',
   'undo.addPlace': 'Plats tillagd',
   'undo.done': 'Återställd: {action}',
+  'undo.failed': 'Det gick inte att ångra: {action}',
 };
 export default undo;

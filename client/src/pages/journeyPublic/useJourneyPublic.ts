@@ -5,7 +5,9 @@ import { useSettingsStore } from '../../store/settingsStore'
 import type { JourneyMapHandle } from '../../components/Journey/JourneyMap'
 import { useIsMobile } from '../../hooks/useIsMobile'
 import { DAY_COLORS } from '../../components/Journey/dayColors'
+import { posterlessVideo } from '../journeyDetail/JourneyDetailPage.helpers'
 import { groupByDate, type PublicEntry, type PublicGalleryPhoto } from './journeyPublicModel'
+import { useJourneyMapLayers } from '../../components/Journey/useJourneyMapLayers'
 
 /**
  * Public-journey (read-only share) data hook — owns the token fetch, the
@@ -86,10 +88,14 @@ export function useJourneyPublic() {
         dayColor: DAY_COLORS[dayIdx % DAY_COLORS.length],
         dayLabel,
         // Through the share token, like every other picture on this page: the
-        // reader has no session, so `/api/photos/:id` would answer 401.
+        // reader has no session, so `/api/photos/:id` would answer 401. The
+        // poster rather than the file, as the owner's own map card does, since
+        // /original is the whole clip for a video; a clip that came up without
+        // a poster is dropped instead of holding a blank slot (#2341).
         photoUrls: (e.photos ?? [])
+          .filter(p => !posterlessVideo(p))
           .slice(0, 3)
-          .map((p: { photo_id: number }) => `/api/public/journey/${token}/photos/${p.photo_id}/original`),
+          .map(p => `/api/public/journey/${token}/photos/${p.photo_id}/thumbnail`),
       }
     })
   }, [mapEntries, sortedDates, token])
@@ -110,6 +116,27 @@ export function useJourneyPublic() {
       .map(p => ({ id: String(p.id), lat: p.lat!, lng: p.lng!, photoId: p.photo_id })),
     [gallery],
   )
+
+  // The shared map's layers (JRN-04): the server cuts them to what the link
+  // shares, so the switches only ever hide. Read only while the map is shared.
+  const entryIdsOnMap = useMemo(() => new Set(sidebarMapItems.map(i => i.id)), [sidebarMapItems])
+  const entryById = useMemo(() => new Map(((data?.entries ?? []) as PublicEntry[]).map(e => [e.id, e])), [data?.entries])
+  const dateOfEntry = useCallback((entryId: number) => entryById.get(entryId)?.entry_date ?? null, [entryById])
+  const entryTitleOf = useCallback((entryId: number) => {
+    const entry = entryById.get(entryId)
+    return entry ? entry.title || entry.location_name || null : null
+  }, [entryById])
+  const colorOfDay = useCallback((date: string) => {
+    const dayIdx = sortedDates.indexOf(date)
+    return dayIdx === -1 ? null : DAY_COLORS[dayIdx % DAY_COLORS.length]
+  }, [sortedDates])
+  const mapLayers = useJourneyMapLayers({
+    source: token && perms.share_map ? { token } : null,
+    entryIdsOnMap,
+    photoCount: mapPhotos.length,
+    colorOfDay,
+    dateOfEntry,
+  })
 
   // A journey shared while the trip is still running reads like a blog, so the owner
   // can publish it newest-first (#1614). The reader may flip it either way; only the
@@ -141,6 +168,7 @@ export function useJourneyPublic() {
     mapRef, activeEntryId, setActiveEntryId, viewingEntry, setViewingEntry, handleMarkerClick,
     perms, journey, stats,
     timelineEntries, groupedEntries, sortedDates, displayDates, sidebarMapItems, allPhotos, stopNumberById, mapPhotos,
+    mapLayers, entryTitleOf,
     newestFirst: effectiveNewestFirst, setNewestFirst,
     desktopTwoColumn,
   }
