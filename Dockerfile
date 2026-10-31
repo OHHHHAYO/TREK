@@ -14,7 +14,9 @@ COPY package.json package-lock.json ./
 COPY shared/package.json ./shared/
 RUN npm ci --workspace=shared
 COPY shared/ ./shared/
-RUN npm run build --workspace=shared
+# tsdown peaks around 2.6 GB on 5.0's shared bundle (one large chunk per locale);
+# a small host's default heap is a quarter of its RAM, so it aborts with SIGABRT.
+RUN NODE_OPTIONS=--max-old-space-size=3072 npm run build --workspace=shared
 
 # ── Stage 2: client ──────────────────────────────────────────────────────────
 FROM node:24-alpine AS client-builder
