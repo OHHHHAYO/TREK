@@ -14,7 +14,7 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        APP_VERSION: ${APP_VERSION:-4.3.0}
+        APP_VERSION: ${APP_VERSION:-5.0.1}
     image: trek-fork:latest
     container_name: trek
     read_only: true
@@ -28,6 +28,10 @@ services:
       - CHOWN
       - SETUID
       - SETGID
+      # dumb-init runs as root and forwards SIGTERM to node, which runs as the
+      # node user; signalling another user's process needs KILL. Without it
+      # docker stop ends in SIGKILL and the graceful shutdown never runs.
+      - KILL
     tmpfs:
       - /tmp:noexec,nosuid,size=128m
     # No `ports:` — deliberately. Reachable only from the caddy container.
